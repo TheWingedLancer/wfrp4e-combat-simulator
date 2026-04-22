@@ -83,7 +83,9 @@ Hooks.on("getSceneControlButtons", (controls) => {
 });
 
 /**
- * Optional: add a button to the Actors sidebar header.
+ * Add a button to the Actors sidebar. Inserts into the same action group
+ * as Foundry's native "Create Actor" / "Create Folder" buttons so it
+ * inherits the native button appearance.
  */
 Hooks.on("renderActorDirectory", (app, html) => {
   if (!game.user.isGM) return;
@@ -92,13 +94,19 @@ Hooks.on("renderActorDirectory", (app, html) => {
   if (!root) return;
   if (root.querySelector(".wfrp4e-sim-open")) return;
 
-  const header = root.querySelector(".directory-header");
-  if (!header) return;
+  // v13 sidebar: directory-header > .action-buttons contains the create buttons.
+  // Fallbacks handle older layouts where the directory-header itself is the host.
+  const actionGroup =
+    root.querySelector(".directory-header .action-buttons") ??
+    root.querySelector(".header-actions") ??
+    root.querySelector(".directory-header");
+
+  if (!actionGroup) return;
 
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "wfrp4e-sim-open";
   btn.innerHTML = `<i class="fas fa-swords"></i> ${game.i18n.localize("WFRP4E_SIM.OpenSimulator")}`;
   btn.addEventListener("click", () => game.modules.get(MODULE_ID).api.open());
-  header.appendChild(btn);
+  actionGroup.appendChild(btn);
 });

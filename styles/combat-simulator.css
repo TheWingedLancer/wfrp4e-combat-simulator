@@ -1,27 +1,15 @@
-/* WFRP4e Combat Simulator */
+/* WFRP4e Combat Simulator
+ *
+ * Design philosophy: inherit from Foundry VTT + the wfrp4e system's existing
+ * stylesheet. We only style module-specific elements (drop zones, sides grid,
+ * distribution cells, predicted-winner badge). Native elements — buttons,
+ * inputs, selects, tables, window frames — use the host look-and-feel.
+ */
 
-.wfrp4e-sim {
-  --sim-parchment: #f3ead0;
-  --sim-parchment-dark: #d9ca9e;
-  --sim-ink: #2a2418;
-  --sim-accent: #8c1f1f;
-  --sim-accent-dark: #5a0f0f;
-  --sim-gold: #a37a2d;
-  --sim-border: rgba(42, 36, 24, 0.35);
-  --sim-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  font-family: "CaslonAntique", "Book Antiqua", Georgia, serif;
-  color: var(--sim-ink);
-}
+/* ============================================ */
+/*  Layout                                      */
+/* ============================================ */
 
-.wfrp4e-sim .window-content {
-  background:
-    repeating-linear-gradient(0deg, rgba(140, 110, 60, 0.03) 0 2px, transparent 2px 6px),
-    radial-gradient(circle at 20% 10%, rgba(140, 110, 60, 0.08), transparent 40%),
-    var(--sim-parchment);
-  padding: 16px;
-}
-
-/* Layout */
 .wfrp4e-sim-layout {
   display: flex;
   flex-direction: column;
@@ -30,14 +18,12 @@
 }
 
 .sim-header {
-  border-bottom: 1px solid var(--sim-border);
+  border-bottom: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
   padding-bottom: 8px;
 }
 .sim-title {
-  font-size: 1.3rem;
   margin: 0;
-  color: var(--sim-accent-dark);
-  letter-spacing: 0.5px;
+  font-size: 1.25rem;
 }
 .sim-subtitle {
   font-size: 0.85rem;
@@ -46,7 +32,10 @@
   font-style: italic;
 }
 
-/* Sides */
+/* ============================================ */
+/*  Sides grid                                  */
+/* ============================================ */
+
 .sides-container {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -57,14 +46,12 @@
 }
 
 .sim-side {
-  background: rgba(255, 253, 243, 0.5);
-  border: 1px solid var(--sim-border);
-  border-radius: 4px;
+  border: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
+  border-radius: 3px;
   padding: 8px;
   display: flex;
   flex-direction: column;
   min-height: 200px;
-  box-shadow: var(--sim-shadow);
 }
 
 .side-header {
@@ -77,18 +64,8 @@
 
 .side-name-input {
   flex: 1;
-  background: transparent;
-  border: none;
-  border-bottom: 1px dashed var(--sim-border);
-  font-size: 1rem;
   font-weight: 600;
-  color: var(--sim-accent-dark);
-  padding: 2px 4px;
-  font-family: inherit;
-}
-.side-name-input:focus {
-  outline: none;
-  border-bottom: 1px solid var(--sim-accent);
+  font-size: 1rem;
 }
 
 .side-header-actions {
@@ -97,8 +74,7 @@
   gap: 6px;
 }
 .side-count {
-  background: var(--sim-accent-dark);
-  color: var(--sim-parchment);
+  background: rgba(0, 0, 0, 0.15);
   font-size: 0.75rem;
   padding: 2px 8px;
   border-radius: 10px;
@@ -109,26 +85,21 @@
   width: 22px;
   height: 22px;
   padding: 0;
-  background: transparent;
-  border: 1px solid var(--sim-border);
-  color: var(--sim-ink);
-  cursor: pointer;
-  border-radius: 3px;
+  line-height: 1;
 }
-.side-remove:hover { background: var(--sim-accent); color: var(--sim-parchment); }
 
-/* Dropzone */
+/* Drop zone */
 .side-dropzone {
   flex: 1;
-  border: 2px dashed var(--sim-border);
-  border-radius: 4px;
+  border: 2px dashed var(--color-border-dark, rgba(0, 0, 0, 0.3));
+  border-radius: 3px;
   padding: 6px;
   min-height: 120px;
   transition: background 150ms, border-color 150ms;
 }
 .side-dropzone.drop-active {
-  background: rgba(163, 122, 45, 0.15);
-  border-color: var(--sim-gold);
+  background: rgba(120, 80, 40, 0.12);
+  border-color: var(--color-border-highlight, #ff6400);
 }
 .dropzone-empty {
   height: 100%;
@@ -136,8 +107,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--sim-ink);
-  opacity: 0.45;
+  opacity: 0.5;
   gap: 8px;
   font-style: italic;
 }
@@ -157,16 +127,16 @@
   align-items: center;
   gap: 8px;
   padding: 4px;
-  background: rgba(255, 253, 243, 0.7);
-  border: 1px solid var(--sim-border);
+  border: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.2));
   border-radius: 3px;
+  background: rgba(255, 255, 255, 0.3);
 }
 .combatant-row.missing { opacity: 0.6; border-style: dashed; }
 .combatant-img {
   width: 36px;
   height: 36px;
   border-radius: 3px;
-  border: 1px solid var(--sim-border);
+  border: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.2));
   object-fit: cover;
   cursor: pointer;
   flex-shrink: 0;
@@ -174,7 +144,7 @@
 .combatant-info { flex: 1; min-width: 0; }
 .combatant-name {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -185,47 +155,36 @@
   font-size: 0.75rem;
   opacity: 0.75;
 }
-.missing-text { color: var(--sim-accent); font-style: italic; }
+.missing-text { font-style: italic; }
 .combatant-remove {
   width: 20px;
   height: 20px;
   padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--sim-ink);
-  cursor: pointer;
+  line-height: 1;
   opacity: 0.5;
 }
-.combatant-remove:hover { opacity: 1; color: var(--sim-accent); }
+.combatant-remove:hover { opacity: 1; }
 
 /* Sides actions */
 .sides-actions {
   display: flex;
   justify-content: center;
 }
-.add-side-btn {
-  background: transparent;
-  border: 1px dashed var(--sim-border);
-  color: var(--sim-ink);
-  padding: 6px 14px;
-  font-family: inherit;
-  cursor: pointer;
-  border-radius: 3px;
-}
-.add-side-btn:hover { border-color: var(--sim-accent); color: var(--sim-accent); }
 
-/* Config */
+/* ============================================ */
+/*  Config section                              */
+/* ============================================ */
+
 .sim-config {
-  background: rgba(217, 202, 158, 0.3);
-  border: 1px solid var(--sim-border);
-  border-radius: 4px;
   padding: 10px 12px;
+  border: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.03);
 }
 .sim-config h3 {
   margin: 0 0 8px;
   font-size: 1rem;
-  color: var(--sim-accent-dark);
-  border-bottom: 1px solid var(--sim-border);
+  border-bottom: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.2));
   padding-bottom: 4px;
 }
 .config-grid {
@@ -237,72 +196,63 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 0.85rem;
-}
-.config-grid input,
-.config-grid select {
-  background: rgba(255, 253, 243, 0.8);
-  border: 1px solid var(--sim-border);
-  padding: 4px 6px;
-  font-family: inherit;
-  color: var(--sim-ink);
-  border-radius: 2px;
+  font-size: 0.9rem;
 }
 
-/* Footer */
+/* ============================================ */
+/*  Setup footer                                */
+/* ============================================ */
+
 .sim-footer {
   display: flex;
   align-items: center;
   gap: 12px;
-  border-top: 1px solid var(--sim-border);
+  border-top: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
   padding-top: 10px;
 }
-.run-sim-btn {
-  background: linear-gradient(180deg, var(--sim-accent), var(--sim-accent-dark));
-  color: var(--sim-parchment);
-  border: 1px solid var(--sim-accent-dark);
-  padding: 8px 20px;
-  font-size: 1rem;
-  font-family: inherit;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  cursor: pointer;
-  border-radius: 3px;
-  box-shadow: var(--sim-shadow);
-}
-.run-sim-btn:hover:not(:disabled) {
-  background: linear-gradient(180deg, #a32525, var(--sim-accent));
-}
-.run-sim-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .run-hint { font-style: italic; opacity: 0.7; font-size: 0.85rem; }
 
-/* Results */
-.wfrp4e-sim-results .window-content { padding: 14px; }
+/* ============================================ */
+/*  Results layout                              */
+/* ============================================ */
+
 .results-layout { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+
 .results-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid var(--sim-border);
+  border-bottom: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
   padding-bottom: 10px;
   flex-wrap: wrap;
 }
-.results-title { margin: 0; color: var(--sim-accent-dark); }
-.results-meta { display: flex; gap: 14px; font-size: 0.85rem; margin-top: 4px; }
+.results-title { margin: 0; font-size: 1.25rem; }
+.results-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
 .predicted-winner {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: linear-gradient(90deg, rgba(163, 122, 45, 0.15), transparent);
-  border: 1px solid var(--sim-gold);
+  background: rgba(163, 122, 45, 0.15);
+  border: 1px solid #a37a2d;
   padding: 6px 14px;
   border-radius: 3px;
 }
-.predicted-winner i { color: var(--sim-gold); font-size: 1.2rem; }
-.winner-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.75; }
-.winner-name { font-weight: 700; font-size: 1.05rem; color: var(--sim-accent-dark); }
-.winner-rate { font-weight: 700; color: var(--sim-gold); }
+.predicted-winner i { color: #a37a2d; font-size: 1.2rem; }
+.winner-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.75;
+}
+.winner-name { font-weight: 700; font-size: 1.05rem; }
+.winner-rate { font-weight: 700; color: #a37a2d; }
 
 .results-scroll {
   flex: 1;
@@ -313,23 +263,28 @@
 }
 
 .side-results {
-  background: rgba(255, 253, 243, 0.5);
-  border: 1px solid var(--sim-border);
-  border-radius: 4px;
+  border: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
+  border-radius: 3px;
   padding: 10px;
+  background: rgba(0, 0, 0, 0.03);
 }
 .side-results-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--sim-border);
+  border-bottom: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.2));
   margin-bottom: 8px;
 }
-.side-results-header h3 { margin: 0; color: var(--sim-accent-dark); }
+.side-results-header h3 { margin: 0; font-size: 1.1rem; }
 .side-winrate { font-size: 0.9rem; }
-.side-winrate strong { color: var(--sim-accent-dark); }
 
+/* ============================================ */
+/*  Results table                               */
+/* ============================================ */
+
+/* Explicit readable colors on table headers — the default wfrp4e theme
+ * has very low contrast at small text sizes over parchment backgrounds. */
 .combatant-results-table {
   width: 100%;
   border-collapse: collapse;
@@ -338,66 +293,45 @@
 .combatant-results-table th,
 .combatant-results-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid var(--sim-border);
+  border-bottom: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.2));
   text-align: left;
   vertical-align: top;
 }
-.combatant-results-table th {
-  background: rgba(140, 31, 31, 0.1);
+.combatant-results-table thead th {
+  background: #3c1e1e;
+  color: #f3ead0;
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
+  padding: 6px 8px;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.3);
 }
 .cell-name { font-weight: 600; }
-.cell-dist .dist-mean {
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--sim-accent-dark);
-}
+.cell-dist .dist-mean { font-weight: 700; font-size: 1rem; }
 .cell-dist .dist-detail {
   font-size: 0.7rem;
-  opacity: 0.7;
+  opacity: 0.65;
   margin-top: 2px;
 }
-.cell-crit { font-size: 0.85rem; }
-.cell-crit .crit-inflicted { color: #2e7031; }
-.cell-crit .crit-received { color: var(--sim-accent); }
-.cell-death { font-weight: 600; color: var(--sim-accent-dark); }
+.cell-crit { font-size: 0.85rem; line-height: 1.3; }
+.cell-crit .crit-inflicted { color: #2e7031; font-weight: 600; }
+.cell-crit .crit-received { color: #8c1f1f; font-weight: 600; }
+.cell-death { font-weight: 600; }
+
+/* ============================================ */
+/*  Results footer                              */
+/* ============================================ */
 
 .results-footer {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
-  border-top: 1px solid var(--sim-border);
+  align-items: center;
+  border-top: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
   padding-top: 10px;
 }
-.results-footer button {
-  background: transparent;
-  border: 1px solid var(--sim-border);
-  padding: 6px 14px;
-  font-family: inherit;
-  cursor: pointer;
-  border-radius: 3px;
-  color: var(--sim-ink);
-}
-.results-footer button:hover { border-color: var(--sim-accent); color: var(--sim-accent); }
-
-.results-footer .apply-btn {
-  background: linear-gradient(180deg, var(--sim-accent), var(--sim-accent-dark));
-  color: var(--sim-parchment);
-  border: 1px solid var(--sim-accent-dark);
-  margin-right: auto;
-}
-.results-footer .apply-btn:hover {
-  background: linear-gradient(180deg, #a32525, var(--sim-accent));
-  color: var(--sim-parchment);
-  border-color: var(--sim-accent-dark);
-}
-.results-footer .apply-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.results-footer .apply-btn { margin-right: auto; }
 .applied-notice {
   color: #2e7031;
   font-weight: 600;
@@ -406,15 +340,13 @@
 }
 .applied-notice i { margin-right: 4px; }
 
-/* Actor directory button */
+/* ============================================ */
+/*  Actors sidebar header button                */
+/* ============================================ */
+
+/* Minimal styling — inherits Foundry button theme. */
 .wfrp4e-sim-open {
-  margin: 4px;
-  background: linear-gradient(180deg, var(--sim-accent, #8c1f1f), var(--sim-accent-dark, #5a0f0f));
-  color: #f3ead0;
-  border: 1px solid #5a0f0f;
-  padding: 4px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  width: calc(100% - 8px);
+  width: 100%;
+  margin: 4px 0;
 }
-.wfrp4e-sim-open:hover { background: linear-gradient(180deg, #a32525, #8c1f1f); }
+.wfrp4e-sim-open i { margin-right: 4px; }
