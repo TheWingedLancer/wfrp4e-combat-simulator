@@ -1,0 +1,70 @@
+{
+  "WFRP4E_SIM.Title": "WFRP4e Combat Simulator",
+  "WFRP4E_SIM.ResultsTitle": "Combat Simulation Results",
+  "WFRP4E_SIM.OpenSimulator": "Open Combat Simulator",
+
+  "WFRP4E_SIM.AssembleSides": "Assemble the Combatants",
+  "WFRP4E_SIM.DragActors": "Drag actors from the sidebar onto each side. Use at least two sides.",
+  "WFRP4E_SIM.AddSide": "Add Side",
+  "WFRP4E_SIM.RemoveSide": "Remove this side",
+  "WFRP4E_SIM.RemoveCombatant": "Remove combatant",
+  "WFRP4E_SIM.DragHere": "Drag actors here",
+  "WFRP4E_SIM.ActorMissing": "Actor not found — may have been deleted",
+
+  "WFRP4E_SIM.Config": "Simulation Configuration",
+  "WFRP4E_SIM.Iterations": "Iterations",
+  "WFRP4E_SIM.MaxRounds": "Max Rounds",
+  "WFRP4E_SIM.VictoryCondition": "Victory Condition",
+  "WFRP4E_SIM.StartingRange": "Starting Range",
+
+  "WFRP4E_SIM.Victory.LastStanding": "Last side standing",
+  "WFRP4E_SIM.Victory.Incapacitation": "One side incapacitated",
+  "WFRP4E_SIM.Victory.Rout": "Opposing side routs (<50% active)",
+  "WFRP4E_SIM.Victory.FixedRounds": "Fixed rounds, then compare damage",
+
+  "WFRP4E_SIM.Range.Engaged": "Engaged (melee)",
+  "WFRP4E_SIM.Range.Short": "Short range",
+  "WFRP4E_SIM.Range.Medium": "Medium range",
+  "WFRP4E_SIM.Range.Long": "Long range",
+  "WFRP4E_SIM.Range.Extreme": "Extreme range",
+
+  "WFRP4E_SIM.Run": "Run Simulation",
+  "WFRP4E_SIM.Running": "Simulating…",
+  "WFRP4E_SIM.NeedTwoSides": "Need at least two sides with combatants.",
+
+  "WFRP4E_SIM.ApplyResults.Title": "Apply Results to Actors?",
+  "WFRP4E_SIM.ApplyResults.Prompt": "Would you like to apply the average damage to the real actor sheets after simulation completes? This will reduce Wounds and optionally add conditions.",
+  "WFRP4E_SIM.ApplyResults.Apply": "Apply to Actors",
+  "WFRP4E_SIM.ApplyResults.Skip": "Show Results Only",
+
+  "WFRP4E_SIM.AppliedResults": "Applied average simulation results to actor sheets.",
+
+  "WFRP4E_SIM.Warn.ActorNotFound": "Dropped actor could not be resolved.",
+  "WFRP4E_SIM.Warn.MinimumSides": "At least two sides are required.",
+  "WFRP4E_SIM.Error.NeedTwoSides": "You need at least two sides with combatants before running a simulation.",
+
+  "WFRP4E_SIM.IterationsRan": "iterations",
+  "WFRP4E_SIM.AvgRounds": "avg rounds",
+  "WFRP4E_SIM.Draws": "draws",
+  "WFRP4E_SIM.PredictedWinner": "Predicted Winner",
+  "WFRP4E_SIM.WinRate": "Win rate",
+  "WFRP4E_SIM.Combatant": "Combatant",
+  "WFRP4E_SIM.WoundsInflicted": "Wounds Inflicted",
+  "WFRP4E_SIM.WoundsReceived": "Wounds Received",
+  "WFRP4E_SIM.CritsInflicted": "Crits Inflicted",
+  "WFRP4E_SIM.CritsReceived": "Crits Received",
+  "WFRP4E_SIM.AvgCritRoll": "Avg Crit Roll",
+  "WFRP4E_SIM.DeathRate": "Death Rate",
+  "WFRP4E_SIM.Min": "min",
+  "WFRP4E_SIM.Max": "max",
+  "WFRP4E_SIM.Med": "med",
+  "WFRP4E_SIM.ExportJson": "Export JSON",
+  "WFRP4E_SIM.Close": "Close",
+
+  "WFRP4E_SIM.Settings.DefaultIterations.Name": "Default Iterations",
+  "WFRP4E_SIM.Settings.DefaultIterations.Hint": "Default number of combat iterations to run.",
+  "WFRP4E_SIM.Settings.MaxRounds.Name": "Default Max Rounds",
+  "WFRP4E_SIM.Settings.MaxRounds.Hint": "Maximum number of rounds per simulated combat before a timeout winner is decided.",
+  "WFRP4E_SIM.Settings.SuppressChat.Name": "Suppress Chat Messages",
+  "WFRP4E_SIM.Settings.SuppressChat.Hint": "Prevent the wfrp4e system from posting roll messages to chat during simulations. Recommended."
+}
