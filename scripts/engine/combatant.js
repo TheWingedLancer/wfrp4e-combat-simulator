@@ -24,10 +24,12 @@ export class Combatant {
       system: foundry.utils.deepClone(i.system ?? {})
     }));
 
-    // Initialise dynamic combat state.
+    // Initialise dynamic combat state. Use MAX wounds, not saved current wounds,
+    // so every iteration starts each combatant fresh.
+    const maxW = system?.status?.wounds?.max ?? system?.status?.wounds?.value ?? 1;
     this.state = {
-      currentWounds: system?.status?.wounds?.value ?? 0,
-      maxWounds: system?.status?.wounds?.max ?? (system?.status?.wounds?.value ?? 1),
+      currentWounds: maxW,
+      maxWounds: maxW,
       advantage: 0,
       fate: system?.status?.fate?.value ?? 0,
       fortune: system?.status?.fortune?.value ?? 0,
@@ -142,12 +144,14 @@ export class Combatant {
   /* ---------------------------------- */
 
   takeWounds(amount) {
-    this.state.currentWounds -= amount;
+    const n = Number(amount);
+    if (!Number.isFinite(n) || n <= 0) return;
+    this.state.currentWounds -= n;
     if (this.state.currentWounds <= 0) {
-      // Negative wounds beyond TB => potentially dead after crit resolution.
       const tb = this.bonus("t");
+      // Reduced to 0: unconscious. Beyond -TB: dead.
       if (this.state.currentWounds < -tb) {
-        this.state.unconscious = true;
+        this.state.dead = true;
       } else {
         this.state.unconscious = true;
       }

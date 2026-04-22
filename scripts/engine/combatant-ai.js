@@ -89,11 +89,25 @@ export class CombatantAI {
 
   _bestWeapon(self, weapons) {
     const sb = self.bonus("s");
-    return [...weapons].sort((a, b) => {
-      const da = (a.system?.damage?.value ?? 0) + sb;
-      const db = (b.system?.damage?.value ?? 0) + sb;
-      return db - da;
-    })[0];
+    const damageOf = (w) => {
+      const d = w.system?.damage ?? {};
+      const candidates = [d.meleeValue, d.rangedValue, d.current, d.value];
+      for (const c of candidates) {
+        if (typeof c === "number" && !Number.isNaN(c)) return c;
+        if (typeof c === "string") {
+          const s = c.replace(/\s+/g, "").toUpperCase();
+          if (/^-?\d+$/.test(s)) return parseInt(s, 10) + sb;
+          if (s === "SB") return sb;
+          const m = s.match(/^SB([+-])(\d+)$/) || s.match(/^(\d+)([+-])SB$/);
+          if (m) {
+            if (m[0].startsWith("SB")) return sb + (m[1] === "+" ? 1 : -1) * parseInt(m[2], 10);
+            return parseInt(m[1], 10) + (m[2] === "+" ? 1 : -1) * sb;
+          }
+        }
+      }
+      return 0;
+    };
+    return [...weapons].sort((a, b) => damageOf(b) - damageOf(a))[0];
   }
 
   _bestDamageSpell(spells) {

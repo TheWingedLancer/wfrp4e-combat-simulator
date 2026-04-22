@@ -45,11 +45,9 @@ export class StatsTracker {
   }
 
   recordIteration(outcome) {
-    const acc = this._startIterAccumulator();
-
-    // outcome is the result of _runOneCombat - we need the engine to hand us
-    // per-action deltas. Instead, the engine calls recordAttack/Damage/etc.
-    // during the iteration; here we just finalise.
+    // The engine has already called recordAttack/Damage/Critical/Miscast during
+    // the iteration, populating _currentIterAcc. Just flush it to permanent
+    // records and reset for the next iteration.
     this._flushCurrentIteration(outcome);
   }
 

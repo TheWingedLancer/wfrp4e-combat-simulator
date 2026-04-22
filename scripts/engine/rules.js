@@ -27,6 +27,61 @@ const LOCATION_TO_ARMOUR = {
   rLeg: "rLeg"
 };
 
+/**
+ * Parse a wfrp4e weapon's damage into a numeric base. The system may prepare
+ * `damage.value` to a number, but in many cases — especially for just-cloned
+ * item data or older templates — `damage.value` is a string like "SB + 4" or
+ * "SB+4" or "4". This helper handles all of those, plus the `meleeValue` /
+ * `rangedValue` resolved fields that appear on prepared weapon data.
+ */
+function parseWeaponDamage(weapon, attacker) {
+  const sys = weapon.system ?? {};
+  const dmg = sys.damage ?? {};
+  const sb = attacker.bonus("s");
+  const candidates = [
+    dmg.meleeValue,
+    dmg.rangedValue,
+    dmg.current,
+    dmg.value
+  ];
+  for (const c of candidates) {
+    if (typeof c === "number" && !Number.isNaN(c)) return c;
+    if (typeof c === "string" && c.trim()) {
+      const parsed = evalDamageExpr(c, sb);
+      if (parsed !== null) return parsed;
+    }
+  }
+  return 0;
+}
+
+/** Evaluate "SB + 4", "4", "SB+3", "3+SB" into a number. Returns null on failure. */
+function evalDamageExpr(expr, sb) {
+  if (!expr) return null;
+  // Normalise: strip whitespace, upper-case.
+  const s = String(expr).replace(/\s+/g, "").toUpperCase();
+  // Pure integer
+  if (/^-?\d+$/.test(s)) return parseInt(s, 10);
+  // SB + n or n + SB, with optional sign
+  const plus = s.split("+");
+  if (plus.length === 2) {
+    const a = plus[0] === "SB" ? sb : (/^-?\d+$/.test(plus[0]) ? parseInt(plus[0], 10) : null);
+    const b = plus[1] === "SB" ? sb : (/^-?\d+$/.test(plus[1]) ? parseInt(plus[1], 10) : null);
+    if (a !== null && b !== null) return a + b;
+  }
+  // SB - n
+  if (s.includes("-")) {
+    const minus = s.split("-");
+    if (minus.length === 2) {
+      const a = minus[0] === "SB" ? sb : (/^-?\d+$/.test(minus[0]) ? parseInt(minus[0], 10) : null);
+      const b = minus[1] === "SB" ? sb : (/^-?\d+$/.test(minus[1]) ? parseInt(minus[1], 10) : null);
+      if (a !== null && b !== null) return a - b;
+    }
+  }
+  // Just "SB"
+  if (s === "SB") return sb;
+  return null;
+}
+
 export function d100() { return Math.floor(Math.random() * 100) + 1; }
 export function d10() { return Math.floor(Math.random() * 10) + 1; }
 
@@ -182,16 +237,27 @@ function chooseDefense(defender, attacker) {
  * Resolve damage after a successful attack.
  */
 export function resolveDamage({ attacker, defender, weapon, sl, hitLocation }) {
-  const baseDamage = weapon.system?.damage?.value ?? 0;
   const sb = attacker.bonus("s");
+  // parseWeaponDamage handles "SB+4" strings, meleeValue/rangedValue fields,
+  // and raw numerics. It already folds SB in when the expression uses SB,
+  // so we don't add sb again below when the string-form is in play.
+  const parsedDamage = parseWeaponDamage(weapon, attacker);
 
   // Weapon flags
   const flags = weaponQualities(weapon);
-  const weaponDamage = flags.usesSB === false ? baseDamage : (baseDamage + sb);
 
-  // Impact: SL damage doubled on hits.
-  const slDamage = flags.impact ? Math.max(0, sl) : Math.max(0, sl);
+  // If the raw damage.value was a *pure numeric* on an item that the system
+  // hadn't prepared (rare, but possible for freshly-created items), we add SB
+  // when the weapon uses SB. The parser already added SB for "SB+X" forms.
+  // Heuristic: if damage.value is a string containing "SB", we trust the parse;
+  // otherwise we add SB for melee weapons that use it.
+  const rawDamageStr = String(weapon.system?.damage?.value ?? "");
+  const alreadyIncludesSB = /SB/i.test(rawDamageStr);
+  const weaponDamage = (!alreadyIncludesSB && flags.usesSB !== false)
+    ? parsedDamage + sb
+    : parsedDamage;
 
+  const slDamage = Math.max(0, sl);
   let totalDamage = weaponDamage + slDamage;
 
   // Strike Mighty Blow: +1 damage per talent rank
@@ -202,14 +268,13 @@ export function resolveDamage({ attacker, defender, weapon, sl, hitLocation }) {
   const ap = defender.getArmourAt(hitLocation);
   let mitigation = tb + ap;
 
-  // Damaging / Impact bypass AP under certain conditions in 4e.
-  const attackRoll = sl >= 0 ? 10 : 50; // placeholder; we already rolled SL.
   // Hardy: +TB additional wounds absorption
   if (defender.hasTalent("Hardy")) mitigation += defender.bonus("t");
 
   let wounds = Math.max(0, totalDamage - mitigation);
+  if (!Number.isFinite(wounds)) wounds = 0;
 
-  // Critical trigger: excess damage beyond current wounds OR natural hit-location-specific crit rule.
+  // Critical trigger: reducing defender to 0 or below wounds, or Impale quality.
   const preWounds = defender.currentWounds();
   const triggeredCritical = (preWounds - wounds) <= 0 || flags.impale;
 
