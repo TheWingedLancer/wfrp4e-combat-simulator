@@ -383,6 +383,29 @@
 }
 .results-footer button:hover { border-color: var(--sim-accent); color: var(--sim-accent); }
 
+.results-footer .apply-btn {
+  background: linear-gradient(180deg, var(--sim-accent), var(--sim-accent-dark));
+  color: var(--sim-parchment);
+  border: 1px solid var(--sim-accent-dark);
+  margin-right: auto;
+}
+.results-footer .apply-btn:hover {
+  background: linear-gradient(180deg, #a32525, var(--sim-accent));
+  color: var(--sim-parchment);
+  border-color: var(--sim-accent-dark);
+}
+.results-footer .apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.applied-notice {
+  color: #2e7031;
+  font-weight: 600;
+  margin-right: auto;
+  font-style: italic;
+}
+.applied-notice i { margin-right: 4px; }
+
 /* Actor directory button */
 .wfrp4e-sim-open {
   margin: 4px;

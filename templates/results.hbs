@@ -85,6 +85,14 @@
   </div>
 
   <footer class="results-footer">
+    {{#if canApply}}
+    <button type="button" data-action="applyToActors" class="apply-btn">
+      <i class="fas fa-heart-broken"></i> {{localize "WFRP4E_SIM.ApplyResults.Apply"}}
+    </button>
+    {{/if}}
+    {{#if applied}}
+    <span class="applied-notice"><i class="fas fa-check"></i> {{localize "WFRP4E_SIM.AppliedResults"}}</span>
+    {{/if}}
     <button type="button" data-action="exportJson">
       <i class="fas fa-download"></i> {{localize "WFRP4E_SIM.ExportJson"}}
     </button>

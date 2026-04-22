@@ -2,13 +2,15 @@
  * ResultsApp - displays simulation outcomes.
  */
 
-const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
 export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
-  constructor({ results, config } = {}) {
+  constructor({ results, config, engine } = {}) {
     super();
     this.results = results;
     this.config = config;
+    this.engine = engine;
+    this.applied = false; // track so the user can't apply twice
   }
 
   static DEFAULT_OPTIONS = {
@@ -26,6 +28,7 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
     },
     actions: {
       exportJson: ResultsApp.#onExportJson,
+      applyToActors: ResultsApp.#onApplyToActors,
       closeResults: ResultsApp.#onClose
     }
   };
@@ -69,7 +72,9 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
       predictedWinnerPct: r.predictedWinner ? (r.predictedWinner.winRate * 100).toFixed(1) : null,
       avgRounds: r.avgRounds.toFixed(2),
       drawRatePct: (r.drawRate * 100).toFixed(1),
-      config: this.config
+      config: this.config,
+      canApply: !!this.engine && !this.applied && game.user.isGM,
+      applied: this.applied
     };
   }
 
@@ -84,7 +89,55 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
     URL.revokeObjectURL(url);
   }
 
+  static async #onApplyToActors(event, target) {
+    if (this.applied || !this.engine) return;
+
+    // Confirm before applying.
+    const confirmed = await ResultsApp._confirmApply();
+    if (!confirmed) return;
+
+    try {
+      target.disabled = true;
+      target.textContent = game.i18n.localize("WFRP4E_SIM.ApplyingResults");
+      await this.engine.applyAverageResultsToActors(this.results);
+      this.applied = true;
+      this.render();
+    } catch (err) {
+      console.error("WFRP4e Combat Simulator | Apply failed", err);
+      ui.notifications.error(`Apply failed: ${err.message}`);
+      if (target) {
+        target.disabled = false;
+        target.textContent = game.i18n.localize("WFRP4E_SIM.ApplyResults.Apply");
+      }
+    }
+  }
+
   static #onClose() { this.close(); }
+
+  static _confirmApply() {
+    return new Promise((resolve) => {
+      new DialogV2({
+        window: { title: game.i18n.localize("WFRP4E_SIM.ApplyResults.Title") },
+        content: `<p>${game.i18n.localize("WFRP4E_SIM.ApplyResults.Prompt")}</p>`,
+        buttons: [
+          {
+            action: "apply",
+            label: game.i18n.localize("WFRP4E_SIM.ApplyResults.Apply"),
+            icon: "fas fa-heart-broken",
+            callback: () => resolve(true)
+          },
+          {
+            action: "cancel",
+            label: game.i18n.localize("Cancel"),
+            icon: "fas fa-times",
+            default: true,
+            callback: () => resolve(false)
+          }
+        ],
+        close: () => resolve(false)
+      }).render(true);
+    });
+  }
 }
 
 function fmtDist(d) {

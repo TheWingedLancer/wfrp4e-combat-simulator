@@ -33,9 +33,9 @@
   "WFRP4E_SIM.NeedTwoSides": "Need at least two sides with combatants.",
 
   "WFRP4E_SIM.ApplyResults.Title": "Apply Results to Actors?",
-  "WFRP4E_SIM.ApplyResults.Prompt": "Would you like to apply the average damage to the real actor sheets after simulation completes? This will reduce Wounds and optionally add conditions.",
+  "WFRP4E_SIM.ApplyResults.Prompt": "Apply the average wounds and critical wounds from this simulation to the real actor sheets? This will reduce each combatant's current Wounds by their average damage taken across all iterations.",
   "WFRP4E_SIM.ApplyResults.Apply": "Apply to Actors",
-  "WFRP4E_SIM.ApplyResults.Skip": "Show Results Only",
+  "WFRP4E_SIM.ApplyingResults": "Applying…",
 
   "WFRP4E_SIM.AppliedResults": "Applied average simulation results to actor sheets.",
 

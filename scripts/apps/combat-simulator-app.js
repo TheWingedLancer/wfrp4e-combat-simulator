@@ -235,12 +235,6 @@ export class CombatSimulatorApp extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
-    // Confirm actor-update preference.
-    const apply = await this._promptApplyResults();
-    if (apply === null) return; // cancelled
-
-    this.config.applyResults = apply;
-
     // Disable button while running.
     const btn = this.element.querySelector("[data-action=runSimulation]");
     if (btn) {
@@ -257,11 +251,8 @@ export class CombatSimulatorApp extends HandlebarsApplicationMixin(ApplicationV2
         if (btn) btn.textContent = `${game.i18n.localize("WFRP4E_SIM.Running")} ${Math.round(progress * 100)}%`;
       });
 
-      if (this.config.applyResults) {
-        await engine.applyAverageResultsToActors(results);
-      }
-
-      new ResultsApp({ results, config: this.config }).render(true);
+      // Show results first, then ask about applying to actors.
+      new ResultsApp({ results, config: this.config, engine }).render(true);
     } catch (err) {
       console.error("WFRP4e Combat Simulator | Simulation failed", err);
       ui.notifications.error(`Simulation failed: ${err.message}`);
@@ -271,36 +262,5 @@ export class CombatSimulatorApp extends HandlebarsApplicationMixin(ApplicationV2
         btn.textContent = game.i18n.localize("WFRP4E_SIM.Run");
       }
     }
-  }
-
-  async _promptApplyResults() {
-    return new Promise((resolve) => {
-      new foundry.applications.api.DialogV2({
-        window: { title: game.i18n.localize("WFRP4E_SIM.ApplyResults.Title") },
-        content: `<p>${game.i18n.localize("WFRP4E_SIM.ApplyResults.Prompt")}</p>`,
-        buttons: [
-          {
-            action: "apply",
-            label: game.i18n.localize("WFRP4E_SIM.ApplyResults.Apply"),
-            icon: "fas fa-heart-broken",
-            callback: () => resolve(true)
-          },
-          {
-            action: "skip",
-            label: game.i18n.localize("WFRP4E_SIM.ApplyResults.Skip"),
-            icon: "fas fa-shield",
-            default: true,
-            callback: () => resolve(false)
-          },
-          {
-            action: "cancel",
-            label: game.i18n.localize("Cancel"),
-            icon: "fas fa-times",
-            callback: () => resolve(null)
-          }
-        ],
-        close: () => resolve(null)
-      }).render(true);
-    });
   }
 }
