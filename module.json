@@ -1,0 +1,44 @@
+{
+  "id": "wfrp4e-combat-simulator",
+  "title": "WFRP4e Combat Simulator",
+  "description": "Run Monte Carlo simulations of WFRP4e combat encounters. Drag actors into two or more sides, configure victory conditions and iteration count, then get per-participant damage statistics, critical wound summaries, and predicted winners.",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13",
+    "maximum": "13"
+  },
+  "authors": [
+    {
+      "name": "TheWingedLancer",
+      "url": "https://github.com/TheWingedLancer"
+    }
+  ],
+  "relationships": {
+    "systems": [
+      {
+        "id": "wfrp4e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "8.0.0"
+        }
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/module.js"
+  ],
+  "styles": [
+    "styles/combat-simulator.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "url": "https://github.com/TheWingedLancer/wfrp4e-combat-simulator",
+  "manifest": "https://github.com/TheWingedLancer/wfrp4e-combat-simulator/releases/latest/download/module.json",
+  "download": "https://github.com/TheWingedLancer/wfrp4e-combat-simulator/releases/latest/download/module.zip"
+}
