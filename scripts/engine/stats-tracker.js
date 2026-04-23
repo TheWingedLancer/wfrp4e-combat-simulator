@@ -250,7 +250,8 @@ function summarizeCritsReceived(details) {
         name: c.name,
         description: c.description,
         severity: c.severity,
-        conditions: c.conditions ?? []
+        conditions: c.conditions ?? [],
+        uuid: c.uuid ?? null
       });
     }
     buckets.get(key).count++;

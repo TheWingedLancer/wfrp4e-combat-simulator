@@ -37,16 +37,17 @@ export class SimulationEngine {
    * @returns {Promise<object>} Aggregated results.
    */
   async run(onProgress) {
-    // Yield periodically so Foundry UI stays responsive.
-    const batchSize = Math.max(1, Math.floor(this.iterations / 100));
+    // Yield to the UI periodically so Foundry stays responsive. For small
+    // iteration counts, yield rarely; for large ones, yield ~100 times total.
+    const yieldInterval = Math.max(5, Math.floor(this.iterations / 100));
 
     for (let i = 0; i < this.iterations; i++) {
       const outcome = await this._runOneCombat(i);
       this.stats.recordIteration(outcome);
 
-      if (i % batchSize === 0) {
+      if (i % yieldInterval === 0) {
         onProgress?.(i / this.iterations);
-        await new Promise(r => setTimeout(r, 0)); // yield to UI
+        await new Promise(r => setTimeout(r, 0));
       }
     }
 
@@ -330,42 +331,126 @@ export class SimulationEngine {
   }
 
   /**
-   * Apply averaged damage back to real actors.
-   * Called only when the GM opts in. If multiple combatant entries reference the
-   * same underlying actor (e.g., a horde), their average damage is summed —
-   * which matches what the actor would experience collectively as "one actor".
-   * In practice this is rare for PCs; for NPC hordes the GM typically wants the
-   * worst-case aggregate.
+   * Build a preview of what applyAverageResultsToActors would apply.
+   * Safe to call without mutating anything - used by the results UI to show
+   * a dry-run dialog before committing.
+   *
+   * Returns an array of { actorId, actorName, avgWounds, newWounds,
+   *   topCrit: {name, location, count, uuid} | null }
+   */
+  buildApplyPreview(results) {
+    const byActor = this._aggregateByActor(results);
+    const preview = [];
+    for (const [actorId, agg] of Object.entries(byActor)) {
+      const actor = game.actors.get(actorId);
+      if (!actor) continue;
+      const avgWounds = Math.round(agg.wounds);
+      const currentWounds = actor.system?.status?.wounds?.value ?? 0;
+      const newWounds = Math.max(0, currentWounds - avgWounds);
+      preview.push({
+        actorId,
+        actorName: actor.name,
+        avgWounds,
+        currentWounds,
+        newWounds,
+        avgCrits: agg.avgCrits,
+        topCrit: agg.topCrit
+      });
+    }
+    return preview;
+  }
+
+  /**
+   * Apply averaged results back to real actors.
+   *  - Subtracts rounded average Wounds from each actor's current Wounds.
+   *  - If the actor received at least 1 avg crit per iteration, applies the
+   *    most-frequent crit they received as a real crit Item (via the actor's
+   *    create-embedded-item flow), which carries the narrative description
+   *    and Active Effects that wfrp4e normally attaches.
+   *
+   * If multiple combatant entries reference the same underlying actor
+   * (e.g. a horde of clones), their wounds are summed and the most-frequent
+   * crit across all of them is chosen.
    */
   async applyAverageResultsToActors(results) {
-    // Sum average damage per actor id.
-    const byActor = {};
-    for (const stats of Object.values(results.perCombatant)) {
-      byActor[stats.actorId] ??= { wounds: 0, crits: 0 };
-      byActor[stats.actorId].wounds += stats.woundsReceived.mean;
-      byActor[stats.actorId].crits += stats.criticalsReceived.mean;
-    }
+    const byActor = this._aggregateByActor(results);
+
+    let appliedCount = 0;
+    let critAppliedCount = 0;
 
     for (const [actorId, agg] of Object.entries(byActor)) {
       const actor = game.actors.get(actorId);
       if (!actor) continue;
 
-      const avgWoundsReceived = Math.round(agg.wounds);
-      const currentWounds = actor.system.status.wounds.value;
-      const newWounds = Math.max(0, currentWounds - avgWoundsReceived);
+      // Wounds.
+      const avgWounds = Math.round(agg.wounds);
+      if (avgWounds > 0) {
+        const currentWounds = actor.system?.status?.wounds?.value ?? 0;
+        const newWounds = Math.max(0, currentWounds - avgWounds);
+        await actor.update({ "system.status.wounds.value": newWounds });
+        appliedCount++;
+      }
 
-      await actor.update({ "system.status.wounds.value": newWounds });
-
-      // Apply average critical wounds (rounded down).
-      const avgCrits = Math.floor(agg.crits);
-      for (let i = 0; i < avgCrits; i++) {
+      // Most-frequent crit - only apply if average was >= 1.0 per iteration.
+      if (agg.avgCrits >= 1.0 && agg.topCrit?.uuid) {
         try {
-          await actor.addCondition?.("bleeding", 1);
+          const sourceItem = await fromUuid(agg.topCrit.uuid);
+          if (sourceItem) {
+            // Clone into the actor's owned items so Foundry's Active Effects
+            // transfer properly.
+            const itemData = sourceItem.toObject();
+            await actor.createEmbeddedDocuments("Item", [itemData]);
+            critAppliedCount++;
+          }
         } catch (err) {
-          // no-op
+          console.warn(`WFRP4e Combat Simulator | failed to apply crit to ${actor.name}`, err);
         }
       }
     }
-    ui.notifications.info(game.i18n.localize("WFRP4E_SIM.AppliedResults"));
+
+    ui.notifications.info(
+      game.i18n.format("WFRP4E_SIM.AppliedResultsDetail", {
+        actors: appliedCount,
+        crits: critAppliedCount
+      })
+    );
+  }
+
+  /**
+   * Aggregate per-actor totals across all combatant entries that reference
+   * the same actor. For duplicate entries (hordes), wounds are summed and the
+   * most-frequent crit entry is chosen across all copies.
+   */
+  _aggregateByActor(results) {
+    const byActor = {};
+    for (const stats of Object.values(results.perCombatant)) {
+      const bucket = byActor[stats.actorId] ??= {
+        wounds: 0,
+        avgCrits: 0,
+        critBuckets: new Map() // uuid -> {count, name, location, uuid}
+      };
+      bucket.wounds += stats.woundsReceived?.mean ?? 0;
+      bucket.avgCrits += stats.criticalsReceived?.mean ?? 0;
+
+      for (const c of stats.critsReceivedDetailed ?? []) {
+        // Build the UUID-keyed bucket by pulling the UUID from the original
+        // crit details - but critsReceivedDetailed is already bucketed by
+        // location:roll and doesn't carry UUID. Reconstruct from the raw
+        // crit entries stored in state... but we don't have those here.
+        // Fall back: key by name, which is unique per crit entry in practice.
+        const key = c.name || `${c.location}:${c.result}`;
+        const existing = bucket.critBuckets.get(key);
+        if (existing) existing.count += c.count;
+        else bucket.critBuckets.set(key, { ...c, uuid: c.uuid });
+      }
+    }
+
+    // Pick the top crit per actor.
+    for (const agg of Object.values(byActor)) {
+      const sorted = [...agg.critBuckets.values()].sort((a, b) => b.count - a.count);
+      agg.topCrit = sorted[0] ?? null;
+    }
+
+    return byActor;
   }
 }

@@ -93,8 +93,14 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static async #onApplyToActors(event, target) {
     if (this.applied || !this.engine) return;
 
-    // Confirm before applying.
-    const confirmed = await ResultsApp._confirmApply();
+    // Build a preview of what will happen, then show it for confirmation.
+    const preview = this.engine.buildApplyPreview(this.results);
+    if (!preview.length) {
+      ui.notifications.warn("No actor-level results to apply.");
+      return;
+    }
+
+    const confirmed = await ResultsApp._confirmApplyWithPreview(preview);
     if (!confirmed) return;
 
     try {
@@ -115,7 +121,67 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static #onClose() { this.close(); }
 
+  /**
+   * Preview dialog: shows the per-actor summary of wounds to apply and which
+   * crit (if any) will be attached, then asks for confirmation.
+   */
+  static _confirmApplyWithPreview(preview) {
+    const rows = preview.map(p => {
+      const critLine = (p.avgCrits >= 1.0 && p.topCrit?.uuid)
+        ? `<li class="sim-apply-crit">
+             <i class="fas fa-skull"></i>
+             Crit: <strong>${foundry.utils.escapeHTML(p.topCrit.name || "Unknown")}</strong>
+             <span class="sim-apply-meta">(received ×${p.topCrit.count} over sim; avg ${p.avgCrits.toFixed(2)}/iter)</span>
+           </li>`
+        : `<li class="sim-apply-nocrit">
+             No crit applied <span class="sim-apply-meta">(avg ${p.avgCrits.toFixed(2)}/iter, threshold 1.0)</span>
+           </li>`;
+      return `
+        <div class="sim-apply-actor">
+          <h4>${foundry.utils.escapeHTML(p.actorName)}</h4>
+          <ul>
+            <li>Wounds: <strong>${p.currentWounds} → ${p.newWounds}</strong>
+              <span class="sim-apply-meta">(−${p.avgWounds})</span></li>
+            ${critLine}
+          </ul>
+        </div>
+      `;
+    }).join("");
+
+    const content = `
+      <div class="sim-apply-preview">
+        <p>${game.i18n.localize("WFRP4E_SIM.ApplyResults.Prompt")}</p>
+        <div class="sim-apply-rows">${rows}</div>
+      </div>
+    `;
+
+    return new Promise((resolve) => {
+      new DialogV2({
+        window: { title: game.i18n.localize("WFRP4E_SIM.ApplyResults.Title") },
+        content,
+        position: { width: 520 },
+        buttons: [
+          {
+            action: "apply",
+            label: game.i18n.localize("WFRP4E_SIM.ApplyResults.Apply"),
+            icon: "fas fa-heart-broken",
+            callback: () => resolve(true)
+          },
+          {
+            action: "cancel",
+            label: game.i18n.localize("Cancel"),
+            icon: "fas fa-times",
+            default: true,
+            callback: () => resolve(false)
+          }
+        ],
+        close: () => resolve(false)
+      }).render(true);
+    });
+  }
+
   static _confirmApply() {
+    // Kept for backwards compatibility / simple path.
     return new Promise((resolve) => {
       new DialogV2({
         window: { title: game.i18n.localize("WFRP4E_SIM.ApplyResults.Title") },

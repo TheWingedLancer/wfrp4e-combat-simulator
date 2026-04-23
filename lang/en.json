@@ -38,6 +38,7 @@
   "WFRP4E_SIM.ApplyingResults": "Applying…",
 
   "WFRP4E_SIM.AppliedResults": "Applied average simulation results to actor sheets.",
+  "WFRP4E_SIM.AppliedResultsDetail": "Applied results to {actors} actor(s); attached {crits} critical wound(s).",
 
   "WFRP4E_SIM.Warn.ActorNotFound": "Dropped actor could not be resolved.",
   "WFRP4E_SIM.Warn.MinimumSides": "At least two sides are required.",
