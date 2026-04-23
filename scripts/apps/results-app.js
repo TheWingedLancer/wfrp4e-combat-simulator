@@ -53,7 +53,8 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
         criticalsReceived: fmtDist(c.criticalsReceived),
         avgCriticalRollInflicted: c.avgCriticalRollInflicted.toFixed(1),
         avgCriticalRollReceived: c.avgCriticalRollReceived.toFixed(1),
-        deathRatePct: (c.deathRate * 100).toFixed(1)
+        deathRatePct: (c.deathRate * 100).toFixed(1),
+        critsReceivedDetailed: (c.critsReceivedDetailed ?? []).map(fmtCrit)
       });
     }
 
@@ -148,5 +149,21 @@ function fmtDist(d) {
     max: d.max.toFixed(0),
     median: d.median.toFixed(1),
     stddev: d.stddev.toFixed(2)
+  };
+}
+
+function fmtCrit(c) {
+  const locKey = `WFRP4E_SIM.Location.${c.location}`;
+  const sevKey = `WFRP4E_SIM.Severity.${c.severity}`;
+  const locLabel = game.i18n.has(locKey) ? game.i18n.localize(locKey) : c.location;
+  const sevLabel = game.i18n.has(sevKey) ? game.i18n.localize(sevKey) : c.severity;
+  const condLabel = (c.conditions ?? [])
+    .map(cond => cond.stacks > 1 ? `${cond.key} ×${cond.stacks}` : cond.key)
+    .join(", ");
+  return {
+    ...c,
+    locationLabel: locLabel,
+    severityLabel: sevLabel,
+    conditionsLabel: condLabel
   };
 }

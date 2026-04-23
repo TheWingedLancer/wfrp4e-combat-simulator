@@ -61,6 +61,21 @@
   "WFRP4E_SIM.ExportJson": "Export JSON",
   "WFRP4E_SIM.Close": "Close",
 
+  "WFRP4E_SIM.CritDetailsToggle": "Critical Wounds Received",
+  "WFRP4E_SIM.CritDetailsUnique": "unique",
+
+  "WFRP4E_SIM.Location.head": "Head",
+  "WFRP4E_SIM.Location.body": "Body",
+  "WFRP4E_SIM.Location.lArm": "Left Arm",
+  "WFRP4E_SIM.Location.rArm": "Right Arm",
+  "WFRP4E_SIM.Location.lLeg": "Left Leg",
+  "WFRP4E_SIM.Location.rLeg": "Right Leg",
+
+  "WFRP4E_SIM.Severity.minor": "Minor",
+  "WFRP4E_SIM.Severity.serious": "Serious",
+  "WFRP4E_SIM.Severity.major": "Major",
+  "WFRP4E_SIM.Severity.lethal": "Lethal",
+
   "WFRP4E_SIM.Settings.DefaultIterations.Name": "Default Iterations",
   "WFRP4E_SIM.Settings.DefaultIterations.Hint": "Default number of combat iterations to run.",
   "WFRP4E_SIM.Settings.MaxRounds.Name": "Default Max Rounds",

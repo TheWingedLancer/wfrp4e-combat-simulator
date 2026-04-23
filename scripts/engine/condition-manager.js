@@ -2,6 +2,11 @@
  * Condition processing. Covers WFRP4e core conditions:
  * bleeding, poisoned, ablaze, deafened, blinded, broken, entangled,
  * fatigued, prone, stunned, surprised, unconscious.
+ *
+ * Stacked conditions are reduced by 1 per round (stunned, blinded, deafened,
+ * broken, fatigued) unless the character takes the relevant recovery action.
+ * Persistent conditions (bleeding, ablaze, poisoned, prone, entangled) require
+ * an active effort to remove and are not auto-ticked.
  */
 
 export class ConditionManager {
@@ -24,17 +29,18 @@ export class ConditionManager {
   }
 
   onRoundEnd(combatant) {
-    // Stunned removes 1 stack per round.
-    if (combatant.hasCondition("stunned")) combatant.removeCondition("stunned", 1);
-    if (combatant.hasCondition("surprised")) combatant.removeCondition("surprised", 1);
-    // Prone requires a Move action to stand (we let the AI handle this by moving).
+    // Auto-ticking conditions - reduce by 1 stack per round.
+    for (const key of ["stunned", "surprised", "blinded", "deafened", "broken", "fatigued"]) {
+      if (combatant.hasCondition(key)) combatant.removeCondition(key, 1);
+    }
   }
 
   blocksAction(combatant) {
-    // Unconscious or dead — handled by isActive.
     if (!combatant.isActive()) return true;
-    // Stunned with stacks >= action economy = skip.
+    // Stunned: cannot take any action while this condition is present.
     if (combatant.hasCondition("stunned")) return true;
+    // Unconscious condition stack.
+    if (combatant.hasCondition("unconscious")) return true;
     return false;
   }
 }

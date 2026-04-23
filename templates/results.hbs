@@ -77,6 +77,38 @@
             </td>
             <td class="cell-death">{{this.deathRatePct}}%</td>
           </tr>
+          {{#if this.critsReceivedDetailed.length}}
+          <tr class="crit-details-row">
+            <td colspan="7">
+              <details class="crit-details">
+                <summary>
+                  <i class="fas fa-skull"></i>
+                  {{localize "WFRP4E_SIM.CritDetailsToggle"}}
+                  ({{this.critsReceivedDetailed.length}} {{localize "WFRP4E_SIM.CritDetailsUnique"}})
+                </summary>
+                <ul class="crit-list">
+                  {{#each this.critsReceivedDetailed}}
+                  <li class="crit-entry crit-severity-{{this.severity}}">
+                    <div class="crit-entry-header">
+                      <span class="crit-count">×{{this.count}}</span>
+                      <span class="crit-roll">{{this.result}}</span>
+                      <span class="crit-location">{{this.locationLabel}}</span>
+                      {{#if this.name}}<span class="crit-name">{{this.name}}</span>{{/if}}
+                      <span class="crit-severity-badge">{{this.severityLabel}}</span>
+                    </div>
+                    {{#if this.description}}
+                    <div class="crit-entry-desc">{{this.description}}</div>
+                    {{/if}}
+                    {{#if this.conditionsLabel}}
+                    <div class="crit-entry-conditions">{{this.conditionsLabel}}</div>
+                    {{/if}}
+                  </li>
+                  {{/each}}
+                </ul>
+              </details>
+            </td>
+          </tr>
+          {{/if}}
         {{/each}}
         </tbody>
       </table>

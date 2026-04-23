@@ -319,6 +319,90 @@
 .cell-crit .crit-received { color: #8c1f1f; font-weight: 600; }
 .cell-death { font-weight: 600; }
 
+/* Crit details expander */
+.crit-details-row > td {
+  padding: 0 !important;
+  border-bottom: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.15));
+}
+.crit-details {
+  padding: 4px 8px 8px;
+  font-size: 0.82rem;
+}
+.crit-details > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-weight: 600;
+  opacity: 0.8;
+  user-select: none;
+  list-style: revert;
+}
+.crit-details > summary:hover { opacity: 1; }
+.crit-details > summary i { margin-right: 4px; color: #8c1f1f; }
+.crit-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.crit-entry {
+  padding: 6px 8px;
+  border-left: 3px solid rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 0 3px 3px 0;
+}
+.crit-entry.crit-severity-minor   { border-left-color: #7a8f50; }
+.crit-entry.crit-severity-serious { border-left-color: #c98a3e; }
+.crit-entry.crit-severity-major   { border-left-color: #a03828; }
+.crit-entry.crit-severity-lethal  { border-left-color: #3c1e1e; }
+
+.crit-entry-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.crit-count {
+  font-weight: 700;
+  color: #8c1f1f;
+  min-width: 28px;
+}
+.crit-roll {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+.crit-roll::before { content: "roll "; opacity: 0.7; }
+.crit-location {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  opacity: 0.75;
+}
+.crit-name { font-weight: 600; }
+.crit-severity-badge {
+  margin-left: auto;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.1);
+}
+.crit-entry-desc {
+  font-size: 0.82rem;
+  opacity: 0.85;
+  margin: 2px 0 4px;
+  line-height: 1.35;
+}
+.crit-entry-conditions {
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.75;
+}
+
 /* ============================================ */
 /*  Results footer                              */
 /* ============================================ */

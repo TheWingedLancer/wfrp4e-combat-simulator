@@ -303,17 +303,113 @@ function weaponQualities(weapon) {
 }
 
 /**
- * Roll a critical wound. We approximate the crit table result with a d100.
- * Higher results = more severe. The simulator tracks the *numeric* roll so
- * averages are meaningful; the narrative effect is not simulated mechanically
- * beyond death thresholds, which are handled by the Combatant class.
+ * Location -> wfrp4e critical table key mapping.
+ * The wfrp4e core exposes these standard tables; GMs can install Up in Arms
+ * or other supplements that register alternative tables via modules.
+ */
+const LOCATION_TO_CRIT_TABLE = {
+  head: "crithead",
+  body: "critbody",
+  lArm: "critarm",
+  rArm: "critarm",
+  lLeg: "critleg",
+  rLeg: "critleg"
+};
+
+/**
+ * Conditions that appear commonly in the wfrp4e crit table text.
+ * Keyed by the word as it appears in the description; value is the
+ * canonical condition id recognised by ConditionManager.
+ */
+const CRIT_CONDITION_PATTERNS = [
+  { regex: /\bbleeding\b/i,    key: "bleeding",    captureStacks: /bleeding\s*\+?(\d+)/i },
+  { regex: /\bstunned\b/i,     key: "stunned",     captureStacks: /stunned\s*\+?(\d+)/i },
+  { regex: /\bprone\b/i,       key: "prone",       captureStacks: null },
+  { regex: /\bblinded\b/i,     key: "blinded",     captureStacks: /blinded\s*\+?(\d+)/i },
+  { regex: /\bdeafened\b/i,    key: "deafened",    captureStacks: /deafened\s*\+?(\d+)/i },
+  { regex: /\bfatigued\b/i,    key: "fatigued",    captureStacks: /fatigued\s*\+?(\d+)/i },
+  { regex: /\bentangled\b/i,   key: "entangled",   captureStacks: null },
+  { regex: /\bbroken\b/i,      key: "broken",      captureStacks: /broken\s*\+?(\d+)/i },
+  { regex: /\bablaze\b/i,      key: "ablaze",      captureStacks: null },
+  { regex: /\bunconscious\b/i, key: "unconscious", captureStacks: null }
+];
+
+/**
+ * Roll a critical wound against the wfrp4e system's crit table.
+ * Falls back to a severity-only result if the system tables are unavailable
+ * (e.g., user is running the bare system without the core module installed).
+ *
+ * Returns:
+ *   {
+ *     result: number,         // d100 roll
+ *     location: string,       // hit location key
+ *     tableKey: string,       // crithead / critbody / etc.
+ *     name: string,           // short name of the crit (e.g. "Minor Head Wound")
+ *     description: string,    // narrative text / effect
+ *     extraWounds: number,    // additional wounds dealt by the crit entry
+ *     conditions: Array<{key, stacks}>,
+ *     severity: string        // rough bucket (minor|serious|major|lethal)
+ *   }
  */
 export function rollCriticalWound(hitLocation) {
   const roll = d100();
+  const tableKey = LOCATION_TO_CRIT_TABLE[hitLocation] ?? "critbody";
+
+  let name = "";
+  let description = "";
+  let extraWounds = 0;
+  let conditions = [];
+
+  const tables = game?.wfrp4e?.tables;
+  if (tables && typeof tables.rollTable === "function") {
+    try {
+      // Pass the pre-rolled d100 as a forced roll so our random sequence is
+      // honoured, rather than having the system re-roll internally.
+      const res = tables.rollTable(tableKey, { roll });
+      if (res) {
+        name = res.name ?? res.title ?? "";
+        description = stripHTML(res.description ?? res.text ?? res.result ?? "");
+        // Many crit entries include a "Wounds: X" field or parse-able marker.
+        extraWounds = Number(res.wounds?.value ?? res.extraWounds ?? 0) || 0;
+        conditions = extractConditionsFromText(description);
+      }
+    } catch (err) {
+      // Table not installed, or unexpected shape - fall through to bucket-only.
+      console.warn("WFRP4e Combat Simulator | crit table roll failed, using severity bucket only", err);
+    }
+  }
+
   return {
     result: roll,
     location: hitLocation,
-    // Rough severity bucket.
+    tableKey,
+    name,
+    description,
+    extraWounds,
+    conditions,
     severity: roll <= 20 ? "minor" : roll <= 60 ? "serious" : roll <= 90 ? "major" : "lethal"
   };
+}
+
+function stripHTML(str) {
+  if (!str) return "";
+  return String(str).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function extractConditionsFromText(text) {
+  if (!text) return [];
+  const found = [];
+  const seen = new Set();
+  for (const pat of CRIT_CONDITION_PATTERNS) {
+    if (!pat.regex.test(text)) continue;
+    if (seen.has(pat.key)) continue;
+    seen.add(pat.key);
+    let stacks = 1;
+    if (pat.captureStacks) {
+      const m = text.match(pat.captureStacks);
+      if (m && Number.isFinite(Number(m[1]))) stacks = Number(m[1]);
+    }
+    found.push({ key: pat.key, stacks });
+  }
+  return found;
 }

@@ -26,6 +26,7 @@ export class StatsTracker {
           criticalsReceived: [],
           criticalRolls: [],   // all crit d100 results this combatant inflicted
           critRollsReceived: [],
+          critDetailsReceived: [], // full crit objects received
           miscasts: [],
           killsInflicted: [],
           diedInIter: []
@@ -63,12 +64,19 @@ export class StatsTracker {
     this._bumpAcc(defender.id, "woundsReceived", wounds);
   }
 
-  recordCritical(attacker, defender, rollResult) {
+  recordCritical(attacker, defender, critRoll) {
     this._ensureAcc();
+    // critRoll can be either a bare number (legacy) or a full crit object.
+    const rollNum = typeof critRoll === "number" ? critRoll : critRoll?.result ?? 0;
+    const critObj = typeof critRoll === "number"
+      ? { result: critRoll, location: "body", name: "", description: "", conditions: [] }
+      : critRoll;
+
     this._bumpAcc(attacker.id, "criticalsInflicted", 1);
     this._bumpAcc(defender.id, "criticalsReceived", 1);
-    this._pushAcc(attacker.id, "criticalRolls", rollResult);
-    this._pushAcc(defender.id, "critRollsReceived", rollResult);
+    this._pushAcc(attacker.id, "criticalRolls", rollNum);
+    this._pushAcc(defender.id, "critRollsReceived", rollNum);
+    this._pushAcc(defender.id, "critDetailsReceived", critObj);
   }
 
   recordMiscast(caster) {
@@ -90,6 +98,7 @@ export class StatsTracker {
         criticalsReceived: 0,
         criticalRolls: [],
         critRollsReceived: [],
+        critDetailsReceived: [],
         miscasts: 0
       };
     }
@@ -117,6 +126,7 @@ export class StatsTracker {
       rec.criticalsReceived.push(tally.criticalsReceived);
       rec.criticalRolls.push(...tally.criticalRolls);
       rec.critRollsReceived.push(...tally.critRollsReceived);
+      rec.critDetailsReceived.push(...tally.critDetailsReceived);
       rec.miscasts.push(tally.miscasts);
 
       // Did this combatant die this iteration? Check snapshot by combatant id.
@@ -150,6 +160,7 @@ export class StatsTracker {
         criticalsReceived: distStats(rec.criticalsReceived),
         avgCriticalRollInflicted: mean(rec.criticalRolls),
         avgCriticalRollReceived: mean(rec.critRollsReceived),
+        critsReceivedDetailed: summarizeCritsReceived(rec.critDetailsReceived),
         miscasts: distStats(rec.miscasts),
         deathRate: mean(rec.diedInIter)
       };
@@ -219,4 +230,33 @@ function distStats(arr) {
     stddev: stddev(arr),
     samples: arr.length
   };
+}
+
+/**
+ * Group identical crits (same location + same numeric roll) so the display
+ * can show frequencies rather than a wall of duplicates.
+ * Sorts by frequency descending, then by severity descending.
+ */
+function summarizeCritsReceived(details) {
+  if (!details?.length) return [];
+  const buckets = new Map();
+  for (const c of details) {
+    const key = `${c.location}:${c.result}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        count: 0,
+        location: c.location,
+        result: c.result,
+        name: c.name,
+        description: c.description,
+        severity: c.severity,
+        conditions: c.conditions ?? []
+      });
+    }
+    buckets.get(key).count++;
+  }
+  return [...buckets.values()].sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return b.result - a.result;
+  });
 }

@@ -194,7 +194,23 @@ export class SimulationEngine {
       if (damageResult.triggeredCritical) {
         const critRoll = rollCriticalWound(damageResult.hitLocation);
         target.addCriticalWound(critRoll);
-        this.stats.recordCritical(attacker, target, critRoll.result);
+        this.stats.recordCritical(attacker, target, critRoll);
+
+        // Apply extra wounds from the crit table entry (some entries deal
+        // additional damage beyond the initial hit).
+        if (critRoll.extraWounds > 0) {
+          target.takeWounds(critRoll.extraWounds);
+          this.stats.recordDamage(attacker, target, critRoll.extraWounds);
+        }
+
+        // Apply crippling effect conditions (bleeding, stunned, prone, etc.)
+        for (const { key, stacks } of (critRoll.conditions ?? [])) {
+          if (key === "unconscious") {
+            target.state.unconscious = true;
+          } else {
+            target.addCondition(key, stacks);
+          }
+        }
 
         // Fate burn to survive death-triggering crits.
         if (target.isDead() && target.hasFate()) {
