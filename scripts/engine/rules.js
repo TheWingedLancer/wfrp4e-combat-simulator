@@ -375,42 +375,36 @@ export async function warmCritTables() {
       if (!table) continue;
 
       // Walk the table's results and build the lookup array.
+      // v13 TableResult shape: {name, description, documentUuid, range, type, img}.
+      // Legacy fields (text, documentCollection, documentId) are deprecated.
       const entries = [];
       const resultsIter = table.results?.contents ?? table.results ?? [];
       for (const r of resultsIter) {
-        const range = r.range ?? [r.rangeL, r.rangeH];
+        const range = r.range;
         if (!range || range.length < 2) continue;
         const [min, max] = range;
-        // The result text on wfrp4e crit tables is usually either:
-        //   - a plain string with @UUID[...]{Name} inline
-        //   - or a document-typed result whose documentUuid/documentName is set
-        const resultText = r.text ?? r.description ?? "";
-        let uuid = extractUuidFromResultString(resultText);
-        if (!uuid && r.documentUuid) uuid = r.documentUuid;
-        if (!uuid && r.type === "document" && r.documentCollection && r.documentId) {
-          uuid = `${r.documentCollection}.${r.documentId}`;
-        }
 
-        let name = r.text || "";
-        // Strip any @UUID wrapper to get the friendly name.
-        name = name.replace(/@UUID\[[^\]]+\]\{([^}]+)\}/, "$1").trim() || r.name || "";
+        const uuid = r.documentUuid ?? null;
+        let name = r.name ?? "";
 
-        // Resolve the linked Item for description + extra wounds + conditions.
+        // Resolve the linked Item for description + extra wounds + conditions + effects.
         // This is done ONCE per unique UUID during warmup.
         let description = "";
         let extraWounds = 0;
         let conditions = [];
+        let item = null;
         if (uuid) {
           const resolved = await resolveCritItem(uuid);
           if (resolved) {
             description = resolved.description;
             extraWounds = resolved.extraWounds;
             conditions = resolved.conditions;
+            item = resolved.item;
             if (resolved.name) name = resolved.name;
           }
         }
 
-        entries.push({ min, max, uuid, name, description, extraWounds, conditions });
+        entries.push({ min, max, uuid, name, description, extraWounds, conditions, item });
       }
 
       entries.sort((a, b) => a.min - b.min);
@@ -475,7 +469,7 @@ async function resolveCritItem(uuid) {
         ?? 0;
       const extraWounds = Number(woundsRaw) || 0;
       const conditions = extractConditionsFromItem(item, description);
-      resolved = { name: item.name ?? "", description, extraWounds, conditions };
+      resolved = { name: item.name ?? "", description, extraWounds, conditions, item };
     }
   } catch (err) {
     // Cache null so we don't retry.
@@ -511,6 +505,7 @@ export async function rollCriticalWound(hitLocation) {
         extraWounds: entry.extraWounds,
         conditions: entry.conditions,
         uuid: entry.uuid,
+        item: entry.item,
         severity: roll <= 20 ? "minor" : roll <= 60 ? "serious" : roll <= 90 ? "major" : "lethal"
       };
     }

@@ -19,6 +19,7 @@ import { StatsTracker } from "./stats-tracker.js";
 import { Combatant } from "./combatant.js";
 import { ConditionManager } from "./condition-manager.js";
 import { resolveOpposedTest, resolveDamage, rollCriticalWound } from "./rules.js";
+import { applyCritEffectsToCombatant } from "./effect-applier.js";
 
 export class SimulationEngine {
   constructor({ sides, config }) {
@@ -210,6 +211,17 @@ export class SimulationEngine {
             target.state.unconscious = true;
           } else {
             target.addCondition(key, stacks);
+          }
+        }
+
+        // Apply durational Active Effects + narrative text penalties
+        // (e.g. -10 WS until healed) so subsequent rounds in this iteration
+        // see the degraded combatant.
+        if (critRoll.item) {
+          try {
+            applyCritEffectsToCombatant(target, attacker, critRoll.item, critRoll.description);
+          } catch (err) {
+            console.warn("WFRP4e Combat Simulator | effect applier failed", err);
           }
         }
 
