@@ -175,7 +175,8 @@ export class SimulationEngine {
       attacker,
       defender: target,
       weapon,
-      actionType: action.type
+      actionType: action.type,
+      allCombatants
     });
 
     this.stats.recordAttack(attacker, target);

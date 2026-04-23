@@ -119,12 +119,15 @@ export function rollHitLocation(attackRoll) {
 /**
  * Resolve an opposed combat test.
  * Returns { attackerWins, winnerSL, damageDealt, hitLocation }.
+ *
+ * `allCombatants` is optional; when provided it enables the Outnumbering
+ * to-hit bonus (core 4e p.161: +20 at 2:1, +40 at 3:1, melee only).
  */
-export function resolveOpposedTest({ attacker, defender, weapon, actionType }) {
+export function resolveOpposedTest({ attacker, defender, weapon, actionType, allCombatants }) {
   // Attacker test
   const attackerSkill = attacker.weaponSkillFor(weapon);
   const attackerAdv = attacker.state.advantage * 10;
-  const attackerTarget = attackerSkill.total + attackerAdv + attackerModifier(attacker, defender, weapon, actionType);
+  const attackerTarget = attackerSkill.total + attackerAdv + attackerModifier(attacker, defender, weapon, actionType, allCombatants);
 
   const attackerRoll = d100();
   const attackerSL = calcSL(attackerRoll, attackerTarget);
@@ -197,7 +200,7 @@ export function resolveOpposedTest({ attacker, defender, weapon, actionType }) {
   };
 }
 
-function attackerModifier(attacker, defender, weapon, actionType) {
+function attackerModifier(attacker, defender, weapon, actionType, allCombatants) {
   let mod = 0;
 
   // Defender prone => +20 melee
@@ -219,7 +222,65 @@ function attackerModifier(attacker, defender, weapon, actionType) {
     mod += rangeMods[range] ?? 0;
   }
 
+  // Outnumbering (core 4e p.161-162, melee only). Count how many active
+  // combatants on each side are currently engaged with the relevant target.
+  // Attacker side counts anyone on attacker.sideId (including attacker) who
+  // is engaged with the defender; defender side counts anyone on
+  // defender.sideId (including defender) who is engaged with the attacker.
+  // The rule text: "Outnumbering is generally determined by how many
+  // Characters are Engaged with each other." Ranged attacks are excluded.
+  if (actionType === "melee" && allCombatants) {
+    const outnumberMod = computeOutnumberingBonus(attacker, defender, allCombatants);
+    mod += outnumberMod;
+  }
+
   return mod;
+}
+
+/**
+ * Count engaged combatants on both sides and return the attacker's
+ * Outnumbering to-hit bonus. Ratios use strict floor division:
+ *   ratio >= 3  -> +40
+ *   ratio >= 2  -> +20
+ *   else        ->  0
+ * The attacker and defender both count toward their own side's tally.
+ *
+ * Engagement semantics: a combatant counts as "engaged with" another when
+ * either side's stored range band is "engaged". The sim currently sets
+ * rangeTo one-directionally on move, so we check both views to avoid
+ * under-counting. When a pair has no explicit range set, Combatant.rangeTo
+ * falls back to that combatant's startingRange - so sims configured to
+ * start in "engaged" range treat everyone as a scrum by default, which
+ * correctly causes the ratio to reflect the raw head-count on each side.
+ */
+function computeOutnumberingBonus(attacker, defender, allCombatants) {
+  const engaged = (a, b) =>
+    a.rangeTo(b) === "engaged" || b.rangeTo(a) === "engaged";
+
+  let attackerSideCount = 0;
+  let defenderSideCount = 0;
+
+  for (const c of allCombatants) {
+    if (!c.isActive()) continue;
+    if (c.sideId === attacker.sideId) {
+      // Attacker self-counts; allies count if they're engaged with the defender.
+      if (c === attacker || engaged(c, defender)) {
+        attackerSideCount++;
+      }
+    } else if (c.sideId === defender.sideId) {
+      // Defender self-counts; allies count if they're engaged with the attacker.
+      if (c === defender || engaged(c, attacker)) {
+        defenderSideCount++;
+      }
+    }
+    // Combatants on a third side (unusual 3-way fight) are ignored.
+  }
+
+  if (defenderSideCount <= 0) return 0; // shouldn't happen - defender is active
+  const ratio = attackerSideCount / defenderSideCount;
+  if (ratio >= 3) return 40;
+  if (ratio >= 2) return 20;
+  return 0;
 }
 
 function chooseDefense(defender, attacker) {
