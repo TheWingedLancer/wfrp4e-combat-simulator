@@ -192,7 +192,7 @@ export class SimulationEngine {
 
       // Critical wound?
       if (damageResult.triggeredCritical) {
-        const critRoll = rollCriticalWound(damageResult.hitLocation);
+        const critRoll = await rollCriticalWound(damageResult.hitLocation);
         target.addCriticalWound(critRoll);
         this.stats.recordCritical(attacker, target, critRoll);
 

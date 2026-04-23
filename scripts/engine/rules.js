@@ -336,25 +336,23 @@ const CRIT_CONDITION_PATTERNS = [
 
 /**
  * Roll a critical wound against the wfrp4e system's crit table.
- * Falls back to a severity-only result if the system tables are unavailable
- * (e.g., user is running the bare system without the core module installed).
  *
- * Returns:
- *   {
- *     result: number,         // d100 roll
- *     location: string,       // hit location key
- *     tableKey: string,       // crithead / critbody / etc.
- *     name: string,           // short name of the crit (e.g. "Minor Head Wound")
- *     description: string,    // narrative text / effect
- *     extraWounds: number,    // additional wounds dealt by the crit entry
- *     conditions: Array<{key, stacks}>,
- *     severity: string        // rough bucket (minor|serious|major|lethal)
- *   }
+ * Important behavioural notes about wfrp4e's API:
+ * - game.wfrp4e.tables.rollTable returns a Promise - must await.
+ * - The result's `total` field is the actual d100 value rolled. Any {roll}
+ *   option passed in is IGNORED by the system (verified empirically), so we
+ *   let the system roll its own d100 and record that instead of our own.
+ * - The result's `result` field is a UUID reference like
+ *   "@UUID[Compendium.wfrp4e-core.items.Item.XXXX]{Injury Name}" that points
+ *   to an Item document containing the actual narrative description and
+ *   mechanical effects. We resolve that via fromUuid() to get real text.
+ *
+ * Falls back to a severity-only result if the system tables are unavailable.
  */
-export function rollCriticalWound(hitLocation) {
-  const roll = d100();
+export async function rollCriticalWound(hitLocation) {
   const tableKey = LOCATION_TO_CRIT_TABLE[hitLocation] ?? "critbody";
 
+  let roll = d100(); // fallback if the system isn't available
   let name = "";
   let description = "";
   let extraWounds = 0;
@@ -363,18 +361,40 @@ export function rollCriticalWound(hitLocation) {
   const tables = game?.wfrp4e?.tables;
   if (tables && typeof tables.rollTable === "function") {
     try {
-      // Pass the pre-rolled d100 as a forced roll so our random sequence is
-      // honoured, rather than having the system re-roll internally.
-      const res = tables.rollTable(tableKey, { roll });
+      const res = await tables.rollTable(tableKey);
       if (res) {
-        name = res.name ?? res.title ?? "";
-        description = stripHTML(res.description ?? res.text ?? res.result ?? "");
-        // Many crit entries include a "Wounds: X" field or parse-able marker.
-        extraWounds = Number(res.wounds?.value ?? res.extraWounds ?? 0) || 0;
-        conditions = extractConditionsFromText(description);
+        // The system's actual d100 roll.
+        if (Number.isFinite(res.total)) roll = res.total;
+        else if (Number.isFinite(res.roll)) roll = res.roll;
+
+        name = res.name ?? res.text ?? "";
+
+        // Resolve the referenced crit Item for full description + effects.
+        const uuid = extractUuidFromResultString(res.result);
+        if (uuid) {
+          try {
+            const item = await fromUuid(uuid);
+            if (item) {
+              description = stripHTML(item.system?.description?.value ?? "");
+              // Wounds dealt by this crit (field is typically a number or a string).
+              const woundsRaw = item.system?.wounds?.value
+                ?? item.system?.damage?.value
+                ?? 0;
+              extraWounds = Number(woundsRaw) || 0;
+              // Effects on this Item that apply conditions.
+              conditions = extractConditionsFromItem(item, description);
+            }
+          } catch (err) {
+            // fromUuid failed - stale compendium reference or permission issue.
+          }
+        }
+
+        // If we still have no description but we have a name, use the name as fallback text.
+        if (!description && name) description = name;
+        // Last-ditch condition extraction from just the name/text.
+        if (conditions.length === 0) conditions = extractConditionsFromText(`${name} ${description}`);
       }
     } catch (err) {
-      // Table not installed, or unexpected shape - fall through to bucket-only.
       console.warn("WFRP4e Combat Simulator | crit table roll failed, using severity bucket only", err);
     }
   }
@@ -389,6 +409,46 @@ export function rollCriticalWound(hitLocation) {
     conditions,
     severity: roll <= 20 ? "minor" : roll <= 60 ? "serious" : roll <= 90 ? "major" : "lethal"
   };
+}
+
+/**
+ * Extract the UUID from a wfrp4e rollTable result string like
+ * "@UUID[Compendium.wfrp4e-core.items.Item.sSSUZXOXK2DSpxGx]{Dramatic Injury}".
+ * Returns null if the string isn't a UUID reference.
+ */
+function extractUuidFromResultString(str) {
+  if (!str || typeof str !== "string") return null;
+  const match = str.match(/@UUID\[([^\]]+)\]/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Extract conditions from a crit Item's active effects (if present) or from
+ * the narrative description text as a fallback. wfrp4e crit items often carry
+ * Active Effects whose names match condition keys.
+ */
+function extractConditionsFromItem(item, description) {
+  const found = [];
+  const seen = new Set();
+  const effects = item.effects ?? [];
+  for (const effect of effects) {
+    const nm = (effect.name ?? "").toLowerCase();
+    for (const pat of CRIT_CONDITION_PATTERNS) {
+      if (pat.regex.test(nm) && !seen.has(pat.key)) {
+        seen.add(pat.key);
+        found.push({ key: pat.key, stacks: 1 });
+      }
+    }
+  }
+  // Also scan the description for any conditions not captured by effects.
+  const textFound = extractConditionsFromText(description);
+  for (const c of textFound) {
+    if (!seen.has(c.key)) {
+      seen.add(c.key);
+      found.push(c);
+    }
+  }
+  return found;
 }
 
 function stripHTML(str) {
