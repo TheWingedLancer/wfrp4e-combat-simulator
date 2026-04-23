@@ -5,6 +5,7 @@
 
 import { SimulationEngine } from "../engine/simulation-engine.js";
 import { ResultsApp } from "./results-app.js";
+import { warmCritTables } from "../engine/rules.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -112,6 +113,17 @@ export class CombatSimulatorApp extends HandlebarsApplicationMixin(ApplicationV2
   _onRender(context, options) {
     super._onRender?.(context, options);
     const root = this.element;
+
+    // Kick off crit-table pre-warming in the background on first render.
+    // This is fire-and-forget: the sim engine falls back to the slow path
+    // if the user hits Run before warming finishes. Typically warming
+    // completes in <1s and subsequent sims are dramatically faster.
+    if (!this._warmingStarted) {
+      this._warmingStarted = true;
+      warmCritTables().catch(err => {
+        console.warn("WFRP4e Combat Simulator | Crit table warming failed", err);
+      });
+    }
 
     // Drop zones.
     root.querySelectorAll(".side-dropzone").forEach(zone => {

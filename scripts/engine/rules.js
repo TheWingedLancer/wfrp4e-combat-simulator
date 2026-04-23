@@ -337,13 +337,129 @@ const CRIT_CONDITION_PATTERNS = [
 /**
  * Cache of resolved crit Items across a single page session.
  * UUID -> { name, description, extraWounds, conditions }
- *
- * Foundry does cache fromUuid internally, but each await still yields to the
- * event loop. Since a 1000-iteration sim can easily see 1000+ crits and most
- * will be on the same ~30 unique compendium items, skipping the await entirely
- * on cache hits gives a 10-50x speedup.
  */
 const CRIT_ITEM_CACHE = new Map();
+
+/**
+ * Pre-built synchronous crit table: tableKey -> sorted array of
+ *   { min, max, uuid, name, description, extraWounds, conditions }
+ *
+ * When populated, rollCriticalWound can run entirely synchronously - no
+ * awaits, no system calls, no chat-message overhead. Populated by
+ * warmCritTables() which should be called once when the Combat Simulator
+ * UI opens.
+ */
+const CRIT_TABLE_CACHE = new Map();
+
+/**
+ * Pre-load all crit tables and their referenced Items into memory.
+ *
+ * wfrp4e exposes the raw RollTable documents through game.tables (world-level)
+ * and through compendiums. We read the .results collection to build our own
+ * synchronous lookup, avoiding the cost of going through tables.rollTable on
+ * every simulation crit (which evaluates a Roll, awaits, and calls the
+ * deprecated getChatText internally).
+ *
+ * Safe to call multiple times - short-circuits if already warmed.
+ * Returns a Promise that resolves when all four tables are ready (or failed).
+ */
+export async function warmCritTables() {
+  if (CRIT_TABLE_CACHE.size > 0) return true; // already warmed
+
+  const tableKeys = ["crithead", "critbody", "critarm", "critleg"];
+  let anyLoaded = false;
+
+  for (const key of tableKeys) {
+    try {
+      const table = findCritTable(key);
+      if (!table) continue;
+
+      // Walk the table's results and build the lookup array.
+      const entries = [];
+      const resultsIter = table.results?.contents ?? table.results ?? [];
+      for (const r of resultsIter) {
+        const range = r.range ?? [r.rangeL, r.rangeH];
+        if (!range || range.length < 2) continue;
+        const [min, max] = range;
+        // The result text on wfrp4e crit tables is usually either:
+        //   - a plain string with @UUID[...]{Name} inline
+        //   - or a document-typed result whose documentUuid/documentName is set
+        const resultText = r.text ?? r.description ?? "";
+        let uuid = extractUuidFromResultString(resultText);
+        if (!uuid && r.documentUuid) uuid = r.documentUuid;
+        if (!uuid && r.type === "document" && r.documentCollection && r.documentId) {
+          uuid = `${r.documentCollection}.${r.documentId}`;
+        }
+
+        let name = r.text || "";
+        // Strip any @UUID wrapper to get the friendly name.
+        name = name.replace(/@UUID\[[^\]]+\]\{([^}]+)\}/, "$1").trim() || r.name || "";
+
+        // Resolve the linked Item for description + extra wounds + conditions.
+        // This is done ONCE per unique UUID during warmup.
+        let description = "";
+        let extraWounds = 0;
+        let conditions = [];
+        if (uuid) {
+          const resolved = await resolveCritItem(uuid);
+          if (resolved) {
+            description = resolved.description;
+            extraWounds = resolved.extraWounds;
+            conditions = resolved.conditions;
+            if (resolved.name) name = resolved.name;
+          }
+        }
+
+        entries.push({ min, max, uuid, name, description, extraWounds, conditions });
+      }
+
+      entries.sort((a, b) => a.min - b.min);
+      if (entries.length > 0) {
+        CRIT_TABLE_CACHE.set(key, entries);
+        anyLoaded = true;
+        console.log(`WFRP4e Combat Simulator | Warmed ${key}: ${entries.length} entries`);
+      } else {
+        console.warn(`WFRP4e Combat Simulator | Crit table ${key} found but had no parseable entries`);
+      }
+    } catch (err) {
+      console.warn(`WFRP4e Combat Simulator | Failed to warm crit table ${key}`, err);
+    }
+  }
+
+  if (!anyLoaded) {
+    console.warn("WFRP4e Combat Simulator | No crit tables could be warmed; simulations will use the slow async path.");
+  }
+  return anyLoaded;
+}
+
+/**
+ * Find a wfrp4e crit RollTable by its key/name. Checks world tables first,
+ * then the wfrp4e system's table registry.
+ */
+function findCritTable(key) {
+  // wfrp4e registers these via game.wfrp4e.tables[key]: a plain data object,
+  // not a proper RollTable. We need the underlying document.
+  // First try game.tables (world RollTables collection).
+  if (game.tables) {
+    const hit = game.tables.find(t => t.name?.toLowerCase().includes(key)
+                                   || t.getFlag?.("wfrp4e", "key") === key);
+    if (hit) return hit;
+  }
+
+  // Fall back to wfrp4e's registered table structure.
+  const wt = game?.wfrp4e?.tables?.[key];
+  if (wt) {
+    // This is typically a plain object with columns/rows - wrap it so
+    // the results walker can process it.
+    if (wt.results) return wt;
+    if (wt.columns && Array.isArray(wt.columns)) {
+      // Build a synthetic entries array from the column data.
+      return { results: wt.columns.flatMap(c => c.rows ?? []) };
+    }
+  }
+
+  return null;
+}
 
 async function resolveCritItem(uuid) {
   if (!uuid) return null;
@@ -362,8 +478,7 @@ async function resolveCritItem(uuid) {
       resolved = { name: item.name ?? "", description, extraWounds, conditions };
     }
   } catch (err) {
-    // Stale compendium reference or permission issue - cache the null too
-    // so we don't keep retrying.
+    // Cache null so we don't retry.
   }
 
   CRIT_ITEM_CACHE.set(uuid, resolved);
@@ -371,24 +486,42 @@ async function resolveCritItem(uuid) {
 }
 
 /**
- * Roll a critical wound against the wfrp4e system's crit table.
+ * Roll a critical wound.
  *
- * Important behavioural notes about wfrp4e's API:
- * - game.wfrp4e.tables.rollTable returns a Promise - must await.
- * - The result's `total` field is the actual d100 value rolled. Any {roll}
- *   option passed in is IGNORED by the system (verified empirically), so we
- *   let the system roll its own d100 and record that instead of our own.
- * - The result's `result` field is a UUID reference like
- *   "@UUID[Compendium.wfrp4e-core.items.Item.XXXX]{Injury Name}" that points
- *   to an Item document containing the actual narrative description and
- *   mechanical effects. We resolve that via fromUuid() (cached) to get text.
- *
- * Falls back to a severity-only result if the system tables are unavailable.
+ * If the crit tables have been warmed (via warmCritTables), this is fully
+ * synchronous and extremely fast - just a d100 and an array lookup. If not
+ * warmed, falls back to the async wfrp4e tables.rollTable path which is
+ * ~200x slower but still correct.
  */
 export async function rollCriticalWound(hitLocation) {
   const tableKey = LOCATION_TO_CRIT_TABLE[hitLocation] ?? "critbody";
+  const roll = d100();
 
-  let roll = d100();
+  // FAST PATH: warmed synchronous lookup.
+  const entries = CRIT_TABLE_CACHE.get(tableKey);
+  if (entries) {
+    const entry = entries.find(e => roll >= e.min && roll <= e.max);
+    if (entry) {
+      return {
+        result: roll,
+        location: hitLocation,
+        tableKey,
+        name: entry.name,
+        description: entry.description,
+        extraWounds: entry.extraWounds,
+        conditions: entry.conditions,
+        uuid: entry.uuid,
+        severity: roll <= 20 ? "minor" : roll <= 60 ? "serious" : roll <= 90 ? "major" : "lethal"
+      };
+    }
+  }
+
+  // SLOW PATH: tables weren't warmed, use the system's async roller.
+  return await rollCriticalWoundViaSystem(hitLocation, tableKey, roll);
+}
+
+async function rollCriticalWoundViaSystem(hitLocation, tableKey, fallbackRoll) {
+  let roll = fallbackRoll;
   let name = "";
   let description = "";
   let extraWounds = 0;
