@@ -347,8 +347,18 @@ export class SimulationEngine {
    * Safe to call without mutating anything - used by the results UI to show
    * a dry-run dialog before committing.
    *
-   * Returns an array of { actorId, actorName, avgWounds, newWounds,
-   *   topCrit: {name, location, count, uuid} | null }
+   * Probabilistic crit sampling (v0.1.11): each click produces a fresh roll
+   * across the observed crit distribution plus a "No crit" bucket whose
+   * weight equals the number of iterations in which the combatant received
+   * zero crits. The rolled bucket is what will actually be applied if the
+   * user confirms - preview and apply share the same roll.
+   *
+   * Returns an array of {
+   *   actorId, actorName, avgWounds, currentWounds, newWounds, avgCrits,
+   *   critDistribution: [{ label, count, percent, crit, isRolled, isNoCrit }, ...],
+   *   rolledCrit: {name, uuid, ...} | null,    // the crit to apply, or null
+   *   rolledBucketIndex, totalWeight
+   * }
    */
   buildApplyPreview(results) {
     const byActor = this._aggregateByActor(results);
@@ -359,6 +369,10 @@ export class SimulationEngine {
       const avgWounds = Math.round(agg.wounds);
       const currentWounds = actor.system?.status?.wounds?.value ?? 0;
       const newWounds = Math.max(0, currentWounds - avgWounds);
+
+      // Build and sample the bucket distribution.
+      const sample = this._sampleCritDistribution(agg);
+
       preview.push({
         actorId,
         actorName: actor.name,
@@ -366,50 +380,58 @@ export class SimulationEngine {
         currentWounds,
         newWounds,
         avgCrits: agg.avgCrits,
-        topCrit: agg.topCrit
+        critDistribution: sample.distribution,
+        rolledCrit: sample.rolledCrit,
+        rolledBucketIndex: sample.rolledBucketIndex,
+        totalWeight: sample.totalWeight,
+        rollValue: sample.rollValue
       });
     }
     return preview;
   }
 
   /**
-   * Apply averaged results back to real actors.
+   * Apply averaged wounds plus a probabilistically-sampled crit back to real
+   * actors. The crit to apply (or none) must already have been rolled by
+   * buildApplyPreview - pass that preview in so preview and apply agree.
+   *
    *  - Subtracts rounded average Wounds from each actor's current Wounds.
-   *  - If the actor received at least 1 avg crit per iteration, applies the
-   *    most-frequent crit they received as a real crit Item (via the actor's
-   *    create-embedded-item flow), which carries the narrative description
-   *    and Active Effects that wfrp4e normally attaches.
+   *  - If the pre-rolled bucket for that actor carries a crit, attaches it
+   *    to the actor as an embedded Item (so Active Effects transfer via
+   *    wfrp4e's normal item flow).
    *
    * If multiple combatant entries reference the same underlying actor
-   * (e.g. a horde of clones), their wounds are summed and the most-frequent
-   * crit across all of them is chosen.
+   * (e.g. a horde of clones), their wounds are summed and a single unified
+   * crit distribution is sampled across all of them.
+   *
+   * @param {object} results - the aggregated sim results
+   * @param {Array}  preview - the array returned by buildApplyPreview;
+   *                           must be the exact object shown to the user
    */
-  async applyAverageResultsToActors(results) {
-    const byActor = this._aggregateByActor(results);
-
+  async applyAverageResultsToActors(results, preview) {
     let appliedCount = 0;
     let critAppliedCount = 0;
 
-    for (const [actorId, agg] of Object.entries(byActor)) {
-      const actor = game.actors.get(actorId);
+    for (const row of preview) {
+      const actor = game.actors.get(row.actorId);
       if (!actor) continue;
 
       // Wounds.
-      const avgWounds = Math.round(agg.wounds);
-      if (avgWounds > 0) {
+      if (row.avgWounds > 0) {
+        // Re-read current Wounds in case the sheet changed since preview
+        // was built, but honor the preview's avgWounds value so the user
+        // sees consistent numbers.
         const currentWounds = actor.system?.status?.wounds?.value ?? 0;
-        const newWounds = Math.max(0, currentWounds - avgWounds);
+        const newWounds = Math.max(0, currentWounds - row.avgWounds);
         await actor.update({ "system.status.wounds.value": newWounds });
         appliedCount++;
       }
 
-      // Most-frequent crit - only apply if average was >= 1.0 per iteration.
-      if (agg.avgCrits >= 1.0 && agg.topCrit?.uuid) {
+      // Pre-rolled crit (if the "No crit" bucket lost the roll, rolledCrit is null).
+      if (row.rolledCrit?.uuid) {
         try {
-          const sourceItem = await fromUuid(agg.topCrit.uuid);
+          const sourceItem = await fromUuid(row.rolledCrit.uuid);
           if (sourceItem) {
-            // Clone into the actor's owned items so Foundry's Active Effects
-            // transfer properly.
             const itemData = sourceItem.toObject();
             await actor.createEmbeddedDocuments("Item", [itemData]);
             critAppliedCount++;
@@ -429,9 +451,119 @@ export class SimulationEngine {
   }
 
   /**
+   * Given an aggregate (wounds + crit buckets + zero-crit iteration count),
+   * build the full bucket list and draw one unified sample. The weights are
+   * the raw observed counts from the sim (pure frequency weighting, no
+   * severity boost). The "No crit" bucket is just another bucket with
+   * weight = iterations-where-this-actor-received-zero-crits.
+   *
+   * Returns:
+   *   distribution: [{ label, count, percent (0..100), crit, isRolled, isNoCrit }]
+   *   rolledBucketIndex: int
+   *   rolledCrit: the crit object for the rolled bucket, or null if "No crit"
+   *   rollValue: the random draw (for debugging / replay)
+   *   totalWeight: sum of all bucket weights
+   */
+  _sampleCritDistribution(agg) {
+    const critBuckets = [...agg.critBuckets.values()]
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return (b.result ?? 0) - (a.result ?? 0);
+      });
+
+    const buckets = critBuckets.map(c => ({
+      label: c.name || `${c.location} ${c.result}`,
+      count: c.count,
+      crit: c,
+      isNoCrit: false
+    }));
+
+    // Append the "No crit" bucket - summed zero-crit iterations across every
+    // combatant entry that maps to this actor (handles duplicate entries).
+    const noCritWeight = agg.zeroCritIterations ?? 0;
+    buckets.push({
+      label: "No crit",
+      count: noCritWeight,
+      crit: null,
+      isNoCrit: true
+    });
+
+    const totalWeight = buckets.reduce((s, b) => s + b.count, 0);
+
+    // Degenerate case: zero total weight (no iterations or no data).
+    // Force the "No crit" bucket as the rolled outcome so nothing gets applied.
+    if (totalWeight <= 0) {
+      const distribution = buckets.map((b, i) => ({
+        label: b.label,
+        count: b.count,
+        percent: 0,
+        crit: b.crit,
+        isRolled: b.isNoCrit,
+        isNoCrit: b.isNoCrit,
+        // "No crit" is always applicable (it's a no-op by design); crit
+        // buckets are applicable only if we have a source UUID to clone.
+        isApplicable: b.isNoCrit || !!b.crit?.uuid
+      }));
+      return {
+        distribution,
+        rolledBucketIndex: buckets.length - 1,
+        rolledCrit: null,
+        rollValue: 0,
+        totalWeight: 0
+      };
+    }
+
+    // Unified roll across all buckets (Strategy A).
+    const rollValue = Math.random() * totalWeight;
+    let cumulative = 0;
+    let rolledIndex = buckets.length - 1; // fallback
+    for (let i = 0; i < buckets.length; i++) {
+      cumulative += buckets[i].count;
+      if (rollValue < cumulative) {
+        rolledIndex = i;
+        break;
+      }
+    }
+
+    const distribution = buckets.map((b, i) => ({
+      label: b.label,
+      count: b.count,
+      percent: (b.count / totalWeight) * 100,
+      crit: b.crit,
+      isRolled: i === rolledIndex,
+      isNoCrit: b.isNoCrit,
+      // Crit buckets without a source UUID can't be attached to the actor
+      // (this happens when the async fallback path in rules.js produced the
+      // crit without a table item reference). The bucket still counts for
+      // sampling, but the UI should warn and the apply step should no-op.
+      isApplicable: b.isNoCrit || !!b.crit?.uuid
+    }));
+
+    return {
+      distribution,
+      rolledBucketIndex: rolledIndex,
+      rolledCrit: buckets[rolledIndex].crit,
+      rollValue,
+      totalWeight
+    };
+  }
+
+  /**
    * Aggregate per-actor totals across all combatant entries that reference
-   * the same actor. For duplicate entries (hordes), wounds are summed and the
-   * most-frequent crit entry is chosen across all copies.
+   * the same actor. For duplicate entries (hordes), wounds are summed, crit
+   * counts are summed across buckets keyed by name (or location:result), and
+   * the zero-crit-iteration counts are summed as well.
+   *
+   * Returns: {
+   *   [actorId]: {
+   *     wounds:              summed mean wounds received,
+   *     avgCrits:            summed mean crits received per iteration
+   *                          (informational only; sampling uses raw counts),
+   *     critBuckets:         Map<key, { count, name, location, result, uuid, ... }>,
+   *     zeroCritIterations:  total count of iterations (across all entries)
+   *                          in which this actor's entry received zero crits
+   *   }
+   * }
    */
   _aggregateByActor(results) {
     const byActor = {};
@@ -439,28 +571,22 @@ export class SimulationEngine {
       const bucket = byActor[stats.actorId] ??= {
         wounds: 0,
         avgCrits: 0,
-        critBuckets: new Map() // uuid -> {count, name, location, uuid}
+        critBuckets: new Map(), // key -> {count, name, location, uuid, ...}
+        zeroCritIterations: 0
       };
       bucket.wounds += stats.woundsReceived?.mean ?? 0;
       bucket.avgCrits += stats.criticalsReceived?.mean ?? 0;
+      bucket.zeroCritIterations += stats.iterationsWithZeroCritsReceived ?? 0;
 
       for (const c of stats.critsReceivedDetailed ?? []) {
-        // Build the UUID-keyed bucket by pulling the UUID from the original
-        // crit details - but critsReceivedDetailed is already bucketed by
-        // location:roll and doesn't carry UUID. Reconstruct from the raw
-        // crit entries stored in state... but we don't have those here.
-        // Fall back: key by name, which is unique per crit entry in practice.
+        // critsReceivedDetailed is pre-bucketed by location:result in the
+        // stats tracker; key by name when present (crit names are unique
+        // per entry in wfrp4e), falling back to location:result.
         const key = c.name || `${c.location}:${c.result}`;
         const existing = bucket.critBuckets.get(key);
         if (existing) existing.count += c.count;
-        else bucket.critBuckets.set(key, { ...c, uuid: c.uuid });
+        else bucket.critBuckets.set(key, { ...c });
       }
-    }
-
-    // Pick the top crit per actor.
-    for (const agg of Object.values(byActor)) {
-      const sorted = [...agg.critBuckets.values()].sort((a, b) => b.count - a.count);
-      agg.topCrit = sorted[0] ?? null;
     }
 
     return byActor;

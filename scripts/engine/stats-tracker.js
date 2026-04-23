@@ -29,7 +29,11 @@ export class StatsTracker {
           critDetailsReceived: [], // full crit objects received
           miscasts: [],
           killsInflicted: [],
-          diedInIter: []
+          diedInIter: [],
+          // Per-iteration flag (0 or 1) for whether this combatant received
+          // ZERO crits that iteration. Summing gives the "no crit" bucket
+          // weight for probabilistic Apply.
+          zeroCritIterationFlags: []
         };
       }
     }
@@ -129,6 +133,10 @@ export class StatsTracker {
       rec.critDetailsReceived.push(...tally.critDetailsReceived);
       rec.miscasts.push(tally.miscasts);
 
+      // Track whether this combatant received no crits this iteration.
+      // This feeds the "No crit" bucket in probabilistic Apply sampling.
+      rec.zeroCritIterationFlags.push(tally.criticalsReceived === 0 ? 1 : 0);
+
       // Did this combatant die this iteration? Check snapshot by combatant id.
       const snap = outcome.combatants.find(c => c.id === id);
       rec.diedInIter.push(snap && !snap.alive ? 1 : 0);
@@ -161,6 +169,9 @@ export class StatsTracker {
         avgCriticalRollInflicted: mean(rec.criticalRolls),
         avgCriticalRollReceived: mean(rec.critRollsReceived),
         critsReceivedDetailed: summarizeCritsReceived(rec.critDetailsReceived),
+        // Number of iterations in which this combatant received ZERO crits.
+        // Used as the "No crit" bucket weight for probabilistic Apply.
+        iterationsWithZeroCritsReceived: rec.zeroCritIterationFlags.reduce((a, b) => a + b, 0),
         miscasts: distStats(rec.miscasts),
         deathRate: mean(rec.diedInIter)
       };

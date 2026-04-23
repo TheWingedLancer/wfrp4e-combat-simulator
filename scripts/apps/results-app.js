@@ -93,7 +93,10 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static async #onApplyToActors(event, target) {
     if (this.applied || !this.engine) return;
 
-    // Build a preview of what will happen, then show it for confirmation.
+    // Build a fresh preview each click. This also performs the probabilistic
+    // crit roll per actor - the roll is carried in the preview so that the
+    // dialog display and the final apply stay in sync. Cancelling and
+    // re-clicking Apply intentionally re-rolls (GMs can explore the distribution).
     const preview = this.engine.buildApplyPreview(this.results);
     if (!preview.length) {
       ui.notifications.warn("No actor-level results to apply.");
@@ -106,7 +109,9 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
     try {
       target.disabled = true;
       target.textContent = game.i18n.localize("WFRP4E_SIM.ApplyingResults");
-      await this.engine.applyAverageResultsToActors(this.results);
+      // Pass the same preview we just showed so wounds and the rolled crit
+      // match what the user saw. Re-fetching would produce a different roll.
+      await this.engine.applyAverageResultsToActors(this.results, preview);
       this.applied = true;
       this.render();
     } catch (err) {
@@ -122,28 +127,86 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static #onClose() { this.close(); }
 
   /**
-   * Preview dialog: shows the per-actor summary of wounds to apply and which
-   * crit (if any) will be attached, then asks for confirmation.
+   * Preview dialog: for each actor, shows the wounds delta and the full crit
+   * distribution with percentage bars. The bucket the engine rolled for this
+   * preview is marked with a chevron and a distinct style; if the user
+   * confirms, that exact bucket gets applied. Cancel + re-click re-rolls.
    */
   static _confirmApplyWithPreview(preview) {
     const rows = preview.map(p => {
-      const critLine = (p.avgCrits >= 1.0 && p.topCrit?.uuid)
-        ? `<li class="sim-apply-crit">
-             <i class="fas fa-skull"></i>
-             Crit: <strong>${foundry.utils.escapeHTML(p.topCrit.name || "Unknown")}</strong>
-             <span class="sim-apply-meta">(received ×${p.topCrit.count} over sim; avg ${p.avgCrits.toFixed(2)}/iter)</span>
-           </li>`
-        : `<li class="sim-apply-nocrit">
-             No crit applied <span class="sim-apply-meta">(avg ${p.avgCrits.toFixed(2)}/iter, threshold 1.0)</span>
-           </li>`;
+      // Build distribution section. If there are no observed crits at all
+      // (all iterations = 0 crits), collapse to a simple "no crit" notice.
+      const dist = p.critDistribution ?? [];
+      const critBuckets = dist.filter(b => !b.isNoCrit);
+
+      let critSection = "";
+      if (critBuckets.length === 0) {
+        critSection = `
+          <div class="sim-apply-nocrits-ever">
+            <i class="fas fa-shield-alt"></i>
+            ${game.i18n.localize("WFRP4E_SIM.ApplyResults.NoCritsEver")}
+          </div>`;
+      } else {
+        const bars = dist.map(b => {
+          const pct = b.percent.toFixed(1);
+          const barWidth = Math.max(0.5, b.percent); // min visible width
+          const classes = [
+            "sim-dist-row",
+            b.isRolled ? "sim-dist-rolled" : "",
+            b.isNoCrit ? "sim-dist-nocrit" : "",
+            !b.isApplicable ? "sim-dist-unapplicable" : ""
+          ].filter(Boolean).join(" ");
+          const marker = b.isRolled
+            ? `<i class="fas fa-caret-right sim-dist-marker" title="${game.i18n.localize("WFRP4E_SIM.ApplyResults.RolledOutcome")}"></i>`
+            : `<span class="sim-dist-marker-spacer"></span>`;
+          // Small inline warning icon for crit buckets with no source item
+          // (typically from the async fallback path) - the bucket still
+          // competes in the roll, but if it wins nothing can be attached.
+          const unapplicableFlag = (!b.isApplicable && !b.isNoCrit)
+            ? ` <i class="fas fa-exclamation-triangle sim-dist-warning" title="${game.i18n.localize("WFRP4E_SIM.ApplyResults.NoSourceItem")}"></i>`
+            : "";
+          const label = foundry.utils.escapeHTML(b.label);
+          return `
+            <div class="${classes}">
+              ${marker}
+              <div class="sim-dist-label">${label}${unapplicableFlag}</div>
+              <div class="sim-dist-bar-wrap">
+                <div class="sim-dist-bar" style="width: ${barWidth}%"></div>
+              </div>
+              <div class="sim-dist-stats">${b.count} · ${pct}%</div>
+            </div>`;
+        }).join("");
+
+        const rolled = dist.find(b => b.isRolled);
+        let rolledSummary = "";
+        if (rolled) {
+          if (rolled.isNoCrit) {
+            rolledSummary = `<i class="fas fa-check"></i> ${game.i18n.localize("WFRP4E_SIM.ApplyResults.RolledNoCrit")}`;
+          } else if (!rolled.isApplicable) {
+            // Rolled outcome can't be attached - apply will skip the crit.
+            rolledSummary = `<i class="fas fa-exclamation-triangle"></i> ${game.i18n.localize("WFRP4E_SIM.ApplyResults.Rolled")}: <strong>${foundry.utils.escapeHTML(rolled.label)}</strong> <span class="sim-apply-meta">${game.i18n.localize("WFRP4E_SIM.ApplyResults.NoSourceWarn")}</span>`;
+          } else {
+            rolledSummary = `<i class="fas fa-skull"></i> ${game.i18n.localize("WFRP4E_SIM.ApplyResults.Rolled")}: <strong>${foundry.utils.escapeHTML(rolled.label)}</strong>`;
+          }
+        }
+
+        critSection = `
+          <div class="sim-dist-header">
+            <span class="sim-dist-title">${game.i18n.localize("WFRP4E_SIM.ApplyResults.CritDistribution")}</span>
+            <span class="sim-apply-meta">(avg ${p.avgCrits.toFixed(2)}/iter, ${p.totalWeight} samples)</span>
+          </div>
+          <div class="sim-dist-list">${bars}</div>
+          <div class="sim-dist-rolled-summary">${rolledSummary}</div>`;
+      }
+
       return `
         <div class="sim-apply-actor">
           <h4>${foundry.utils.escapeHTML(p.actorName)}</h4>
           <ul>
             <li>Wounds: <strong>${p.currentWounds} → ${p.newWounds}</strong>
               <span class="sim-apply-meta">(−${p.avgWounds})</span></li>
-            ${critLine}
           </ul>
+          ${critSection}
         </div>
       `;
     }).join("");
@@ -151,6 +214,7 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const content = `
       <div class="sim-apply-preview">
         <p>${game.i18n.localize("WFRP4E_SIM.ApplyResults.Prompt")}</p>
+        <p class="sim-apply-reroll-hint">${game.i18n.localize("WFRP4E_SIM.ApplyResults.RerollHint")}</p>
         <div class="sim-apply-rows">${rows}</div>
       </div>
     `;
@@ -159,11 +223,11 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
       new DialogV2({
         window: { title: game.i18n.localize("WFRP4E_SIM.ApplyResults.Title") },
         content,
-        position: { width: 520 },
+        position: { width: 620 },
         buttons: [
           {
             action: "apply",
-            label: game.i18n.localize("WFRP4E_SIM.ApplyResults.Apply"),
+            label: game.i18n.localize("WFRP4E_SIM.ApplyResults.ConfirmThisRoll"),
             icon: "fas fa-heart-broken",
             callback: () => resolve(true)
           },
