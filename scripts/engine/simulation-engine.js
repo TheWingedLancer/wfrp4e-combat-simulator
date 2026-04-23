@@ -650,7 +650,8 @@ export class SimulationEngine {
     };
   }
 
- If the
+  /**
+   * Build one aggregate per combatant entry - NOT merged by actor. If the
    * same source actor appears as multiple entries on the sides (e.g. four
    * goblins all instantiated from one Goblin actor), each entry becomes
    * its own preview row. All rows that share an actor will Apply to the
