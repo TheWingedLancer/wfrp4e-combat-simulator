@@ -269,13 +269,13 @@ export class SimulationEngine {
       const totalDamage = damage + sl;
       const ap = target.getArmourAt("body");
       const tb = target.characteristic("tb");
-      const wounds = Math.max(0, totalDamage - ap - tb);
+      // Successful damage spell always does at least 1 wound - TB + AP
+      // can't fully negate a spell that landed and carried damage.
+      const wounds = Math.max(1, totalDamage - ap - tb);
 
       this.stats.recordAttack(caster, target);
-      if (wounds > 0) {
-        target.takeWounds(wounds);
-        this.stats.recordDamage(caster, target, wounds);
-      }
+      target.takeWounds(wounds);
+      this.stats.recordDamage(caster, target, wounds);
     }
     caster.addAdvantage(1);
   }
@@ -347,87 +347,114 @@ export class SimulationEngine {
    * Safe to call without mutating anything - used by the results UI to show
    * a dry-run dialog before committing.
    *
-   * Probabilistic crit sampling (v0.1.11): each click produces a fresh roll
-   * across the observed crit distribution plus a "No crit" bucket whose
-   * weight equals the number of iterations in which the combatant received
-   * zero crits. The rolled bucket is what will actually be applied if the
-   * user confirms - preview and apply share the same roll.
+   * Probabilistic sampling (v0.1.11 crits, v0.1.12 wounds): each click
+   * produces two fresh rolls per combatant entry:
+   *
+   *  1. Wound sample: one of the per-iteration wound totals drawn uniformly
+   *     at random (every iteration's wound-sum is equally likely).
+   *  2. Crit sample: one bucket from the observed crit distribution plus
+   *     a "No crit" bucket weighted by zero-crit iterations.
+   *
+   * Each combatant entry (not each actor) gets its own preview row. If the
+   * same source actor appears multiple times in the sim (duplicate entries),
+   * each one rolls independently and Apply writes them in sequence to the
+   * same sheet.
    *
    * Returns an array of {
-   *   actorId, actorName, avgWounds, currentWounds, newWounds, avgCrits,
-   *   critDistribution: [{ label, count, percent, crit, isRolled, isNoCrit }, ...],
-   *   rolledCrit: {name, uuid, ...} | null,    // the crit to apply, or null
-   *   rolledBucketIndex, totalWeight
+   *   entryId, actorId, actorName, displayName,
+   *   rolledWounds, currentWounds, newWounds,
+   *   woundDistribution: [{ label, value, count, percent, isRolled }],
+   *   woundOtherCount, woundTotalSamples,
+   *   avgCrits,
+   *   critDistribution: [{ label, count, percent, crit, isRolled, isNoCrit, isApplicable }],
+   *   rolledCrit, rolledBucketIndex, totalWeight, rollValue
    * }
    */
   buildApplyPreview(results) {
-    const byActor = this._aggregateByActor(results);
+    const entries = this._aggregateByEntry(results);
     const preview = [];
-    for (const [actorId, agg] of Object.entries(byActor)) {
-      const actor = game.actors.get(actorId);
-      if (!actor) continue;
-      const avgWounds = Math.round(agg.wounds);
-      const currentWounds = actor.system?.status?.wounds?.value ?? 0;
-      const newWounds = Math.max(0, currentWounds - avgWounds);
 
-      // Build and sample the bucket distribution.
-      const sample = this._sampleCritDistribution(agg);
+    // Track the wound-running-total per actor so multiple entries that
+    // share an actor compute sequential newWounds values in the preview
+    // (matching what will actually happen at Apply time). Without this,
+    // four goblin rows would all show "currentWounds -> currentWounds - X"
+    // but the actual apply would stack, confusing the user.
+    const projectedWoundsByActor = {};
+
+    for (const entry of entries) {
+      const actor = game.actors.get(entry.actorId);
+      if (!actor) continue;
+
+      const woundSample = this._sampleWoundDistribution(entry.woundSamples);
+      const critSample = this._sampleCritDistribution(entry);
+
+      const baseWounds = projectedWoundsByActor[entry.actorId]
+        ?? actor.system?.status?.wounds?.value
+        ?? 0;
+      const newWounds = Math.max(0, baseWounds - woundSample.rolledValue);
+      projectedWoundsByActor[entry.actorId] = newWounds;
 
       preview.push({
-        actorId,
+        entryId: entry.entryId,
+        actorId: entry.actorId,
         actorName: actor.name,
-        avgWounds,
-        currentWounds,
+        displayName: entry.displayName,
+        rolledWounds: woundSample.rolledValue,
+        currentWounds: baseWounds,
         newWounds,
-        avgCrits: agg.avgCrits,
-        critDistribution: sample.distribution,
-        rolledCrit: sample.rolledCrit,
-        rolledBucketIndex: sample.rolledBucketIndex,
-        totalWeight: sample.totalWeight,
-        rollValue: sample.rollValue
+        woundDistribution: woundSample.distribution,
+        woundOtherCount: woundSample.otherCount,
+        woundTotalSamples: woundSample.totalSamples,
+        avgCrits: entry.avgCrits,
+        critDistribution: critSample.distribution,
+        rolledCrit: critSample.rolledCrit,
+        rolledBucketIndex: critSample.rolledBucketIndex,
+        totalWeight: critSample.totalWeight,
+        rollValue: critSample.rollValue
       });
     }
+
     return preview;
   }
 
   /**
-   * Apply averaged wounds plus a probabilistically-sampled crit back to real
-   * actors. The crit to apply (or none) must already have been rolled by
-   * buildApplyPreview - pass that preview in so preview and apply agree.
+   * Apply probabilistically-sampled wounds and crits back to real actors.
+   * Both rolls (wounds and crit) are pre-computed by buildApplyPreview -
+   * pass that preview in so on-screen values and applied values agree.
    *
-   *  - Subtracts rounded average Wounds from each actor's current Wounds.
-   *  - If the pre-rolled bucket for that actor carries a crit, attaches it
-   *    to the actor as an embedded Item (so Active Effects transfer via
-   *    wfrp4e's normal item flow).
+   *  - Subtracts the rolled wound sample from each actor's current Wounds.
+   *  - If the pre-rolled crit bucket carries a source item, attaches it
+   *    to the actor as an embedded Item (wfrp4e handles Active Effects
+   *    via its own item transfer flow).
    *
-   * If multiple combatant entries reference the same underlying actor
-   * (e.g. a horde of clones), their wounds are summed and a single unified
-   * crit distribution is sampled across all of them.
+   * Multiple entries sharing the same actor apply sequentially: each row
+   * re-reads current Wounds from the sheet, subtracts its rolled sample,
+   * writes. This means row N sees the effect of rows 0..N-1. Intentional.
    *
    * @param {object} results - the aggregated sim results
    * @param {Array}  preview - the array returned by buildApplyPreview;
    *                           must be the exact object shown to the user
    */
   async applyAverageResultsToActors(results, preview) {
-    let appliedCount = 0;
+    let woundAppliedCount = 0;
     let critAppliedCount = 0;
 
     for (const row of preview) {
       const actor = game.actors.get(row.actorId);
       if (!actor) continue;
 
-      // Wounds.
-      if (row.avgWounds > 0) {
-        // Re-read current Wounds in case the sheet changed since preview
-        // was built, but honor the preview's avgWounds value so the user
-        // sees consistent numbers.
+      // Wounds. Re-read current Wounds from the actor so sequential
+      // same-actor rows stack correctly. rolledWounds can legitimately be
+      // 0, in which case we skip the update entirely.
+      if (row.rolledWounds > 0) {
         const currentWounds = actor.system?.status?.wounds?.value ?? 0;
-        const newWounds = Math.max(0, currentWounds - row.avgWounds);
+        const newWounds = Math.max(0, currentWounds - row.rolledWounds);
         await actor.update({ "system.status.wounds.value": newWounds });
-        appliedCount++;
+        woundAppliedCount++;
       }
 
-      // Pre-rolled crit (if the "No crit" bucket lost the roll, rolledCrit is null).
+      // Pre-rolled crit (if the "No crit" bucket won, rolledCrit is null;
+      // if the rolled bucket has no source uuid, we can't attach and skip).
       if (row.rolledCrit?.uuid) {
         try {
           const sourceItem = await fromUuid(row.rolledCrit.uuid);
@@ -444,7 +471,7 @@ export class SimulationEngine {
 
     ui.notifications.info(
       game.i18n.format("WFRP4E_SIM.AppliedResultsDetail", {
-        actors: appliedCount,
+        actors: woundAppliedCount,
         crits: critAppliedCount
       })
     );
@@ -549,46 +576,135 @@ export class SimulationEngine {
   }
 
   /**
-   * Aggregate per-actor totals across all combatant entries that reference
-   * the same actor. For duplicate entries (hordes), wounds are summed, crit
-   * counts are summed across buckets keyed by name (or location:result), and
-   * the zero-crit-iteration counts are summed as well.
+   * Draw one per-iteration wound sample at random from the observed
+   * distribution. Each iteration is weighted equally (every sample has
+   * 1/N chance, where N = iterations). The returned distribution groups
+   * identical wound totals into buckets so the UI can render them as bars
+   * the same way crits are rendered - sorted by frequency desc, capped at
+   * a readable number of rows so heavy-spread distributions don't explode
+   * the dialog height.
    *
-   * Returns: {
-   *   [actorId]: {
-   *     wounds:              summed mean wounds received,
-   *     avgCrits:            summed mean crits received per iteration
-   *                          (informational only; sampling uses raw counts),
-   *     critBuckets:         Map<key, { count, name, location, result, uuid, ... }>,
-   *     zeroCritIterations:  total count of iterations (across all entries)
-   *                          in which this actor's entry received zero crits
-   *   }
-   * }
+   * Returns:
+   *   distribution: [{ label, value, count, percent, isRolled }]
+   *   otherCount:   number of samples collapsed into "... N other values"
+   *                 when the distinct-value count exceeds the display cap
+   *   rolledValue:  the actual wound number to apply (0 is valid)
+   *   rollIndex:    which iteration's sample was drawn (for debugging)
+   *   totalSamples: count of source samples
    */
-  _aggregateByActor(results) {
-    const byActor = {};
-    for (const stats of Object.values(results.perCombatant)) {
-      const bucket = byActor[stats.actorId] ??= {
-        wounds: 0,
-        avgCrits: 0,
-        critBuckets: new Map(), // key -> {count, name, location, uuid, ...}
-        zeroCritIterations: 0
+  _sampleWoundDistribution(samples, displayCap = 10) {
+    if (!samples?.length) {
+      return {
+        distribution: [],
+        otherCount: 0,
+        rolledValue: 0,
+        rollIndex: -1,
+        totalSamples: 0
       };
-      bucket.wounds += stats.woundsReceived?.mean ?? 0;
-      bucket.avgCrits += stats.criticalsReceived?.mean ?? 0;
-      bucket.zeroCritIterations += stats.iterationsWithZeroCritsReceived ?? 0;
-
-      for (const c of stats.critsReceivedDetailed ?? []) {
-        // critsReceivedDetailed is pre-bucketed by location:result in the
-        // stats tracker; key by name when present (crit names are unique
-        // per entry in wfrp4e), falling back to location:result.
-        const key = c.name || `${c.location}:${c.result}`;
-        const existing = bucket.critBuckets.get(key);
-        if (existing) existing.count += c.count;
-        else bucket.critBuckets.set(key, { ...c });
-      }
     }
 
-    return byActor;
+    // Bucket identical sample values.
+    const valueCounts = new Map();
+    for (const v of samples) {
+      valueCounts.set(v, (valueCounts.get(v) ?? 0) + 1);
+    }
+
+    // Draw one iteration uniformly at random.
+    const rollIndex = Math.floor(Math.random() * samples.length);
+    const rolledValue = samples[rollIndex];
+
+    // Sort buckets: frequency desc, then value desc (big hits rise on ties).
+    const allBuckets = [...valueCounts.entries()]
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return b.value - a.value;
+      });
+
+    // Ensure the rolled bucket is always visible. If it would be truncated,
+    // bump displayCap by 1 to make room for it. Rare but important for
+    // UX - the user must see the rolled bar highlighted.
+    let effectiveCap = displayCap;
+    const rolledIdx = allBuckets.findIndex(b => b.value === rolledValue);
+    if (rolledIdx >= effectiveCap) effectiveCap = rolledIdx + 1;
+
+    const shown = allBuckets.slice(0, effectiveCap);
+    const hidden = allBuckets.slice(effectiveCap);
+    const otherCount = hidden.reduce((s, b) => s + b.count, 0);
+
+    const totalSamples = samples.length;
+    const distribution = shown.map(b => ({
+      value: b.value,
+      label: `${b.value} ${b.value === 1 ? "wound" : "wounds"}`,
+      count: b.count,
+      percent: (b.count / totalSamples) * 100,
+      isRolled: b.value === rolledValue
+    }));
+
+    return {
+      distribution,
+      otherCount,
+      rolledValue,
+      rollIndex,
+      totalSamples
+    };
+  }
+
+ If the
+   * same source actor appears as multiple entries on the sides (e.g. four
+   * goblins all instantiated from one Goblin actor), each entry becomes
+   * its own preview row. All rows that share an actor will Apply to the
+   * same underlying actor sheet in sequence at confirm time, so a single
+   * source actor can legitimately accrue multiple wound writes and multiple
+   * embedded crit items from one Apply click.
+   *
+   * Also assigns disambiguating display names when duplicates exist
+   * ("Goblin", "Goblin (2)", "Goblin (3)"...) so the preview rows are
+   * visually distinct.
+   *
+   * Returns an array of {
+   *   entryId,                 // stable sim-only id for the entry
+   *   actorId,                 // underlying real-actor id (may repeat)
+   *   displayName,             // disambiguated for UI
+   *   woundSamples: number[],  // one sample per iteration
+   *   critBuckets: Map,        // crit-name -> {count, uuid, ...}
+   *   zeroCritIterations: int, // iterations this entry received zero crits
+   *   avgCrits: number         // informational, for the header meta line
+   * }
+   */
+  _aggregateByEntry(results) {
+    const entries = [];
+
+    // First pass: count entries per actor so we can disambiguate names.
+    const actorEntryCount = {};
+    const actorEntrySeen = {};
+    for (const stats of Object.values(results.perCombatant)) {
+      actorEntryCount[stats.actorId] = (actorEntryCount[stats.actorId] ?? 0) + 1;
+    }
+
+    for (const stats of Object.values(results.perCombatant)) {
+      actorEntrySeen[stats.actorId] = (actorEntrySeen[stats.actorId] ?? 0) + 1;
+      const ordinal = actorEntrySeen[stats.actorId];
+      const total = actorEntryCount[stats.actorId];
+      const displayName = total > 1 ? `${stats.name} (${ordinal})` : stats.name;
+
+      const critBuckets = new Map();
+      for (const c of stats.critsReceivedDetailed ?? []) {
+        const key = c.name || `${c.location}:${c.result}`;
+        critBuckets.set(key, { ...c });
+      }
+
+      entries.push({
+        entryId: stats.entryId,
+        actorId: stats.actorId,
+        displayName,
+        woundSamples: stats.woundsReceivedSamples ?? [],
+        critBuckets,
+        zeroCritIterations: stats.iterationsWithZeroCritsReceived ?? 0,
+        avgCrits: stats.criticalsReceived?.mean ?? 0
+      });
+    }
+
+    return entries;
   }
 }

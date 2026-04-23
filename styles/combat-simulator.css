@@ -594,6 +594,30 @@
 }
 .sim-dist-rolled-summary i { margin-right: 4px; color: #8c1f1f; }
 
+/* Wound-distribution color variant (steel blue), to visually separate
+   the wound section from the crit section in the Apply preview. */
+
+.sim-dist-row.sim-dist-wound .sim-dist-bar {
+  background: linear-gradient(90deg, rgba(44, 77, 109, 0.55), rgba(44, 77, 109, 0.8));
+}
+.sim-dist-row.sim-dist-wound.sim-dist-rolled .sim-dist-bar {
+  background: linear-gradient(90deg, rgba(44, 77, 109, 0.85), rgba(70, 115, 160, 1));
+  box-shadow: 0 0 4px rgba(44, 77, 109, 0.4);
+}
+.sim-dist-row.sim-dist-wound.sim-dist-rolled {
+  background: rgba(44, 77, 109, 0.12);
+}
+.sim-dist-row.sim-dist-wound.sim-dist-rolled .sim-dist-marker {
+  color: #2c4d6d;
+}
+
+.sim-dist-other {
+  font-size: 0.72rem;
+  font-style: italic;
+  opacity: 0.6;
+  padding: 2px 4px 0 20px;
+}
+
 .sim-dist-warning {
   color: #b07a1a;
   font-size: 0.75rem;

@@ -164,6 +164,10 @@ export class StatsTracker {
         sideName: rec.sideName,
         woundsInflicted: distStats(rec.woundsInflicted),
         woundsReceived: distStats(rec.woundsReceived),
+        // Raw per-iteration wound samples, preserved so probabilistic Apply
+        // can draw one at random rather than applying the rounded mean.
+        // Each entry is the total wounds received in that iteration (possibly 0).
+        woundsReceivedSamples: [...rec.woundsReceived],
         criticalsInflicted: distStats(rec.criticalsInflicted),
         criticalsReceived: distStats(rec.criticalsReceived),
         avgCriticalRollInflicted: mean(rec.criticalRolls),

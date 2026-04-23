@@ -271,8 +271,14 @@ export function resolveDamage({ attacker, defender, weapon, sl, hitLocation }) {
   // Hardy: +TB additional wounds absorption
   if (defender.hasTalent("Hardy")) mitigation += defender.bonus("t");
 
-  let wounds = Math.max(0, totalDamage - mitigation);
-  if (!Number.isFinite(wounds)) wounds = 0;
+  // A successful hit always inflicts at least 1 wound. TB + AP can never
+  // reduce a connecting attack's damage to 0 - the attacker won the opposed
+  // test and broke through the defender's guard. The floor is applied here
+  // because resolveDamage is only called after opposed.attackerWins &&
+  // opposed.damageDealt > 0 upstream in _resolveAttack, so we know a real
+  // hit is being resolved at this point.
+  let wounds = Math.max(1, totalDamage - mitigation);
+  if (!Number.isFinite(wounds)) wounds = 1;
 
   // Critical trigger: reducing defender to 0 or below wounds, or Impale quality.
   const preWounds = defender.currentWounds();
