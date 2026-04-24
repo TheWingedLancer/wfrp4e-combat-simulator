@@ -651,3 +651,126 @@
   margin: 4px 0;
 }
 .wfrp4e-sim-open i { margin-right: 4px; }
+
+/* ============================================ */
+/*  Narrative summary (v0.1.15)                 */
+/* ============================================ */
+
+.sim-narrative {
+  border: 1px solid var(--color-border-dark, rgba(0, 0, 0, 0.25));
+  border-radius: 3px;
+  margin: 0 0 12px;
+  background: rgba(0, 0, 0, 0.03);
+}
+.sim-narrative-summary {
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.sim-narrative-summary::-webkit-details-marker { display: none; }
+.sim-narrative-summary::before {
+  content: "\25B6";  /* right-pointing triangle */
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.7rem;
+  transition: transform 0.15s;
+}
+.sim-narrative[open] .sim-narrative-summary::before {
+  transform: rotate(90deg);
+}
+.sim-narrative-summary i { margin-right: 6px; color: #8c1f1f; }
+
+.sim-narrative-body {
+  padding: 4px 14px 12px;
+}
+.sim-narrative-clinical p {
+  margin: 2px 0 8px;
+  line-height: 1.45;
+  font-size: 0.88rem;
+}
+.sim-narrative-sides {
+  list-style: disc;
+  margin: 4px 0 8px 20px;
+  padding: 0;
+}
+.sim-narrative-sides li {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 2px 0;
+}
+
+.sim-narrative-flavor-wrap {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border-dark, rgba(0, 0, 0, 0.2));
+}
+.sim-narrative-flavor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.sim-narrative-flavor-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  opacity: 0.8;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.sim-narrative-flavor-label i { margin-right: 4px; color: #8c1f1f; }
+
+.sim-narrative-regenerate {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: inherit;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+.sim-narrative-regenerate:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sim-narrative-flavor {
+  min-height: 1.6em;
+}
+.sim-narrative-flavor p {
+  margin: 0;
+  font-style: italic;
+  line-height: 1.5;
+  font-size: 0.9rem;
+  color: #3a2a1a;
+}
+.sim-narrative-loading {
+  font-size: 0.85rem;
+  opacity: 0.6;
+}
+.sim-narrative-loading i { margin-right: 4px; }
+
+.sim-narrative-flavor-error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #8c1f1f;
+  font-style: italic;
+}
+.sim-narrative-flavor-error i { margin-right: 4px; }
+
+.sim-narrative-no-key {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  opacity: 0.7;
+  padding: 6px 8px;
+  border-left: 3px solid rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.03);
+}
+.sim-narrative-no-key i { margin-right: 4px; }

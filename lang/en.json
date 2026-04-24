@@ -94,5 +94,15 @@
   "WFRP4E_SIM.Settings.MaxRounds.Name": "Default Max Rounds",
   "WFRP4E_SIM.Settings.MaxRounds.Hint": "Maximum number of rounds per simulated combat before a timeout winner is decided.",
   "WFRP4E_SIM.Settings.SuppressChat.Name": "Suppress Chat Messages",
-  "WFRP4E_SIM.Settings.SuppressChat.Hint": "Prevent the wfrp4e system from posting roll messages to chat during simulations. Recommended."
+  "WFRP4E_SIM.Settings.SuppressChat.Hint": "Prevent the wfrp4e system from posting roll messages to chat during simulations. Recommended.",
+  "WFRP4E_SIM.Settings.AnthropicApiKey.Name": "Anthropic API Key",
+  "WFRP4E_SIM.Settings.AnthropicApiKey.Hint": "Your Anthropic API key, used to generate evocative flavor text for simulation results. Stored locally in your browser (client-scoped, not synced to players). Leave blank to disable AI-generated narrative. Get a key at https://console.anthropic.com/",
+  "WFRP4E_SIM.Settings.AnthropicModel.Name": "Anthropic Model",
+  "WFRP4E_SIM.Settings.AnthropicModel.Hint": "The Claude model to use for narrative flavor text. Defaults to claude-sonnet-4-6. Haiku models are cheaper; Opus is more capable but slower and pricier.",
+
+  "WFRP4E_SIM.Narrative.Title": "Narrative Summary",
+  "WFRP4E_SIM.Narrative.Flavor": "Battle Account",
+  "WFRP4E_SIM.Narrative.Regenerate": "Generate a fresh flavor paragraph",
+  "WFRP4E_SIM.Narrative.Generating": "Generating flavor text...",
+  "WFRP4E_SIM.Narrative.NoApiKey": "Configure an Anthropic API key in the module settings to add AI-generated flavor text to this summary."
 }

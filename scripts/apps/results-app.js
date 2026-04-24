@@ -2,6 +2,9 @@
  * ResultsApp - displays simulation outcomes.
  */
 
+import { NarrativeGenerator } from "../engine/narrative-generator.js";
+
+const MODULE_ID = "wfrp4e-combat-simulator";
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
 export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
@@ -11,6 +14,14 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.config = config;
     this.engine = engine;
     this.applied = false; // track so the user can't apply twice
+    // Narrative is lazy-generated once per ResultsApp instance. The flavor
+    // paragraph is cached after the first successful API call so re-renders
+    // (e.g. after Apply) don't re-charge the API.
+    this._narrativeGen = new NarrativeGenerator(results);
+    this._narrativeBriefing = this._narrativeGen.extractBriefing();
+    this._narrativeFlavor = null;     // string once generated
+    this._narrativeFlavorError = null; // error code if API failed
+    this._narrativeLoading = false;   // true during in-flight API call
   }
 
   static DEFAULT_OPTIONS = {
@@ -29,7 +40,8 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
     actions: {
       exportJson: ResultsApp.#onExportJson,
       applyToActors: ResultsApp.#onApplyToActors,
-      closeResults: ResultsApp.#onClose
+      closeResults: ResultsApp.#onClose,
+      regenerateNarrative: ResultsApp.#onRegenerateNarrative
     }
   };
 
@@ -66,6 +78,12 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
       s.wins = r.sides[s.id]?.wins ?? 0;
     }
 
+    // Narrative: clinical half is always rendered synchronously; flavor
+    // half is either already cached (from a prior render in this instance)
+    // or a loading placeholder that _onRender will populate async.
+    const clinicalHTML = this._narrativeGen.renderClinicalSummary(this._narrativeBriefing);
+    const hasApiKey = !!(game.settings.get(MODULE_ID, "anthropicApiKey") || "").trim();
+
     return {
       iterations: r.iterations,
       sides: sidesArr,
@@ -75,8 +93,111 @@ export class ResultsApp extends HandlebarsApplicationMixin(ApplicationV2) {
       drawRatePct: (r.drawRate * 100).toFixed(1),
       config: this.config,
       canApply: !!this.engine && !this.applied && game.user.isGM,
-      applied: this.applied
+      applied: this.applied,
+      narrative: {
+        clinicalHTML,
+        flavor: this._narrativeFlavor,
+        flavorError: this._narrativeFlavorError,
+        loading: this._narrativeLoading,
+        hasApiKey
+      }
     };
+  }
+
+  /**
+   * Post-render hook. If we don't have flavor yet and an API key is
+   * configured, kick off the async fetch. When it lands, we patch the
+   * flavor into the DOM directly rather than re-rendering the whole
+   * window (cheaper and preserves scroll position).
+   */
+  _onRender(context, options) {
+    super._onRender?.(context, options);
+
+    const shouldFetchFlavor =
+      context.narrative?.hasApiKey &&
+      this._narrativeFlavor === null &&
+      this._narrativeFlavorError === null &&
+      !this._narrativeLoading;
+
+    if (shouldFetchFlavor) {
+      this._loadNarrativeFlavor();
+    }
+  }
+
+  async _loadNarrativeFlavor() {
+    this._narrativeLoading = true;
+    try {
+      const apiKey = game.settings.get(MODULE_ID, "anthropicApiKey");
+      const model = game.settings.get(MODULE_ID, "anthropicModel") || "claude-sonnet-4-5";
+      const result = await this._narrativeGen.generateFlavor(
+        this._narrativeBriefing,
+        { apiKey, model }
+      );
+      if (result.text) {
+        this._narrativeFlavor = result.text;
+        this._narrativeFlavorError = null;
+      } else {
+        this._narrativeFlavor = null;
+        this._narrativeFlavorError = result.error ?? "unknown";
+      }
+    } catch (err) {
+      console.warn(`${MODULE_ID} | narrative fetch threw`, err);
+      this._narrativeFlavorError = "exception";
+    } finally {
+      this._narrativeLoading = false;
+      this._paintNarrativeFlavor();
+    }
+  }
+
+  /**
+   * Update the already-rendered narrative DOM in place with whatever flavor
+   * state we're now in (text, error, or nothing). Keeps scroll position and
+   * avoids a full _prepareContext re-run.
+   */
+  _paintNarrativeFlavor() {
+    const root = this.element;
+    if (!root) return;
+    const container = root.querySelector(".sim-narrative-flavor");
+    if (!container) return;
+
+    if (this._narrativeLoading) {
+      container.innerHTML = `<em class="sim-narrative-loading"><i class="fas fa-spinner fa-spin"></i> Generating flavor text...</em>`;
+      return;
+    }
+    if (this._narrativeFlavor) {
+      const safe = foundry.utils.escapeHTML(this._narrativeFlavor);
+      container.innerHTML = `<p>${safe}</p>`;
+      return;
+    }
+    if (this._narrativeFlavorError) {
+      const msg = this._describeFlavorError(this._narrativeFlavorError);
+      container.innerHTML = `<p class="sim-narrative-flavor-error"><i class="fas fa-exclamation-triangle"></i> ${foundry.utils.escapeHTML(msg)}</p>`;
+      return;
+    }
+    // No key, nothing to say.
+    container.innerHTML = "";
+  }
+
+  _describeFlavorError(code) {
+    switch (code) {
+      case "no-api-key": return "No Anthropic API key configured. Set one in the module settings to enable flavor text.";
+      case "network": return "Couldn't reach the Anthropic API. Check your network connection.";
+      case "empty-response": return "The API returned no text. Try regenerating.";
+      case "exception": return "Something went wrong while generating flavor text. Try regenerating.";
+      default:
+        if (String(code).startsWith("api-")) {
+          return `Anthropic API returned status ${String(code).slice(4)}. Check your API key and try again.`;
+        }
+        return `Unknown error (${code}).`;
+    }
+  }
+
+  static async #onRegenerateNarrative(event, target) {
+    // Force a fresh API call.
+    this._narrativeFlavor = null;
+    this._narrativeFlavorError = null;
+    this._paintNarrativeFlavor();
+    await this._loadNarrativeFlavor();
   }
 
   static async #onExportJson(event, target) {

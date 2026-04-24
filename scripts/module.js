@@ -50,6 +50,27 @@ Hooks.once("init", () => {
     type: Boolean,
     default: true
   });
+
+  // Anthropic API key for AI-generated narrative flavor text. Client-scoped
+  // so keys are NEVER synced to player browsers; only the GM who entered the
+  // key has it. The clinical summary works without an API key configured.
+  game.settings.register(MODULE_ID, "anthropicApiKey", {
+    name: "WFRP4E_SIM.Settings.AnthropicApiKey.Name",
+    hint: "WFRP4E_SIM.Settings.AnthropicApiKey.Hint",
+    scope: "client",
+    config: true,
+    type: String,
+    default: ""
+  });
+
+  game.settings.register(MODULE_ID, "anthropicModel", {
+    name: "WFRP4E_SIM.Settings.AnthropicModel.Name",
+    hint: "WFRP4E_SIM.Settings.AnthropicModel.Hint",
+    scope: "client",
+    config: true,
+    type: String,
+    default: "claude-sonnet-4-5"
+  });
 });
 
 Hooks.once("ready", () => {

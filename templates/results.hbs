@@ -21,6 +21,47 @@
     {{/if}}
   </header>
 
+  {{#if narrative}}
+  <details class="sim-narrative" open>
+    <summary class="sim-narrative-summary">
+      <i class="fas fa-scroll"></i>
+      {{localize "WFRP4E_SIM.Narrative.Title"}}
+    </summary>
+    <div class="sim-narrative-body">
+      <div class="sim-narrative-clinical">{{{narrative.clinicalHTML}}}</div>
+      {{#if narrative.hasApiKey}}
+      <div class="sim-narrative-flavor-wrap">
+        <div class="sim-narrative-flavor-header">
+          <span class="sim-narrative-flavor-label">
+            <i class="fas fa-feather"></i>
+            {{localize "WFRP4E_SIM.Narrative.Flavor"}}
+          </span>
+          <button type="button" data-action="regenerateNarrative"
+                  class="sim-narrative-regenerate" title="{{localize 'WFRP4E_SIM.Narrative.Regenerate'}}">
+            <i class="fas fa-arrows-rotate"></i>
+          </button>
+        </div>
+        <div class="sim-narrative-flavor">
+          {{#if narrative.flavor}}
+            <p>{{narrative.flavor}}</p>
+          {{else}}
+            <em class="sim-narrative-loading">
+              <i class="fas fa-spinner fa-spin"></i>
+              {{localize "WFRP4E_SIM.Narrative.Generating"}}
+            </em>
+          {{/if}}
+        </div>
+      </div>
+      {{else}}
+      <p class="sim-narrative-no-key">
+        <i class="fas fa-key"></i>
+        {{localize "WFRP4E_SIM.Narrative.NoApiKey"}}
+      </p>
+      {{/if}}
+    </div>
+  </details>
+  {{/if}}
+
   <div class="results-scroll">
     {{#each sides}}
     <section class="side-results">
