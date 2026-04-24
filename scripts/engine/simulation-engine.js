@@ -33,11 +33,93 @@ export class SimulationEngine {
   }
 
   /**
+   * Snapshot each entry's equipped weapons + known damage spells into a
+   * loadout descriptor. Called once before iterations start. The descriptor
+   * lives on stats.perCombatant[entryId].loadout in the final summary and
+   * feeds the narrative generator so it can describe the fight correctly
+   * (bows vs blades vs spells vs mixed).
+   *
+   * `startingRange` is also captured here so the narrative knows the fight
+   * opened at e.g. "long range" or "engaged" - crucial for describing
+   * opening actions.
+   */
+  _captureLoadouts() {
+    const RANGED_GROUPS = new Set([
+      "bow", "crossbow", "blackpowder", "engineering",
+      "sling", "throwing", "entangling"
+    ]);
+
+    for (const side of this.sides) {
+      for (const entry of side.combatants) {
+        const actor = game.actors.get(entry.actorId);
+        if (!actor) continue;
+
+        // Equipped weapons only (for NPCs/creatures, all weapons count).
+        const weapons = actor.items
+          .filter(i => i.type === "weapon")
+          .filter(i => {
+            if (["creature", "vehicle"].includes(actor.type)) return true;
+            const eq = i.system?.equipped;
+            return (typeof eq === "object" && eq !== null) ? !!eq.value : !!eq;
+          });
+
+        const melee = [];
+        const ranged = [];
+        for (const w of weapons) {
+          const group = w.system?.weaponGroup?.value;
+          const descriptor = {
+            name: w.name,
+            group,
+            groupLabel: game.wfrp4e?.config?.weaponGroups?.[group] || group || "weapon"
+          };
+          if (RANGED_GROUPS.has(group)) ranged.push(descriptor);
+          else melee.push(descriptor);
+        }
+
+        // Known damage spells - the AI casts these when engaged > short range
+        // and no ranged weapon is to hand, so they affect the narrative too.
+        const damageSpells = actor.items
+          .filter(i => i.type === "spell" && (i.system?.damage?.value ?? 0) > 0)
+          .map(s => ({ name: s.name }));
+
+        // Primary mode: which kind of attack is this combatant mostly
+        // going to make? Heuristic: if the fight starts at engaged or
+        // short and they have melee, melee. If they only have ranged
+        // weapons, ranged. If they have both, "mixed".
+        let primaryMode;
+        if (melee.length && !ranged.length && !damageSpells.length) primaryMode = "melee";
+        else if (ranged.length && !melee.length && !damageSpells.length) primaryMode = "ranged";
+        else if (damageSpells.length && !melee.length && !ranged.length) primaryMode = "spell";
+        else if (melee.length && ranged.length) primaryMode = "mixed";
+        else if (damageSpells.length) primaryMode = "mixed"; // spells + weapons
+        else primaryMode = "unarmed";
+
+        this.stats.recordLoadout(entry.id, {
+          melee,
+          ranged,
+          damageSpells,
+          primaryMode,
+          hasMelee: melee.length > 0,
+          hasRanged: ranged.length > 0,
+          hasSpells: damageSpells.length > 0
+        });
+      }
+    }
+  }
+
+
+  /**
    * Run all iterations.
    * @param {(progress:number)=>void} onProgress
    * @returns {Promise<object>} Aggregated results.
    */
   async run(onProgress) {
+    // Capture each combatant's weapon/spell loadout once up front - the
+    // narrative generator needs this to correctly describe the fight as
+    // ranged/melee/mixed. Actor data doesn't change across iterations so
+    // one pass is enough.
+    this._captureLoadouts();
+
     // Yield to the UI periodically so Foundry stays responsive. For small
     // iteration counts, yield rarely; for large ones, yield ~100 times total.
     const yieldInterval = Math.max(5, Math.floor(this.iterations / 100));
@@ -53,7 +135,11 @@ export class SimulationEngine {
     }
 
     onProgress?.(1);
-    return this.stats.summarize(this.iterations);
+    const results = this.stats.summarize(this.iterations);
+    // Engine-level config that the narrative generator needs but the tracker
+    // doesn't carry. Attach here so NarrativeGenerator can see it.
+    results.startingRange = this.startingRange;
+    return results;
   }
 
   async _runOneCombat(iterationIndex) {

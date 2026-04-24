@@ -47,6 +47,22 @@ export class NarrativeGenerator {
         (b.deathRate ?? 0) - (a.deathRate ?? 0)
       )[0];
 
+      // Per-side loadout rollup: which combat modes are represented on
+      // this side, and a short list of distinctive weapon groups.
+      const modes = new Set();
+      const groups = new Set();
+      let anyMelee = false, anyRanged = false, anySpells = false;
+      for (const c of combatants) {
+        const lo = c.loadout;
+        if (!lo) continue;
+        if (lo.primaryMode) modes.add(lo.primaryMode);
+        if (lo.hasMelee) anyMelee = true;
+        if (lo.hasRanged) anyRanged = true;
+        if (lo.hasSpells) anySpells = true;
+        for (const w of (lo.melee ?? [])) groups.add(w.groupLabel);
+        for (const w of (lo.ranged ?? [])) groups.add(w.groupLabel);
+      }
+
       return {
         id: side.id,
         name: side.name,
@@ -56,7 +72,12 @@ export class NarrativeGenerator {
         topDealer: topDealer ? {
           name: topDealer.name,
           avgWounds: topDealer.woundsInflicted?.mean ?? 0,
-          avgCrits: topDealer.criticalsInflicted?.mean ?? 0
+          avgCrits: topDealer.criticalsInflicted?.mean ?? 0,
+          primaryMode: topDealer.loadout?.primaryMode ?? null,
+          weaponGroups: [
+            ...(topDealer.loadout?.melee ?? []),
+            ...(topDealer.loadout?.ranged ?? [])
+          ].map(w => w.groupLabel)
         } : null,
         topVictim: topVictim ? {
           name: topVictim.name,
@@ -67,7 +88,14 @@ export class NarrativeGenerator {
         mostLikelyToFall: topDier && topDier.deathRate > 0 ? {
           name: topDier.name,
           deathRate: topDier.deathRate
-        } : null
+        } : null,
+        loadout: {
+          modes: [...modes],
+          weaponGroups: [...groups],
+          anyMelee,
+          anyRanged,
+          anySpells
+        }
       };
     });
 
@@ -79,6 +107,36 @@ export class NarrativeGenerator {
     const totalAvgMiscasts = allCombatants.reduce(
       (s, c) => s + (c.miscasts?.mean ?? 0), 0
     );
+
+    // Combat-mode rollup: what kinds of weapons/spells are in play, and at
+    // what range did the fight open? This stops the flavor generator from
+    // defaulting to swords-and-blades imagery when the fight is a ranged
+    // duel, spell exchange, or mixed engagement.
+    const modesPresent = new Set();
+    for (const c of allCombatants) {
+      const mode = c.loadout?.primaryMode;
+      if (mode) modesPresent.add(mode);
+    }
+    const hasMelee = allCombatants.some(c => c.loadout?.hasMelee);
+    const hasRanged = allCombatants.some(c => c.loadout?.hasRanged);
+    const hasSpells = allCombatants.some(c => c.loadout?.hasSpells);
+    let combatMode;
+    if (hasRanged && !hasMelee && !hasSpells) combatMode = "ranged";
+    else if (hasMelee && !hasRanged && !hasSpells) combatMode = "melee";
+    else if (hasSpells && !hasMelee && !hasRanged) combatMode = "magical";
+    else if (hasMelee && hasRanged && !hasSpells) combatMode = "mixed melee and ranged";
+    else if (hasMelee && hasSpells && !hasRanged) combatMode = "mixed melee and magic";
+    else if (hasRanged && hasSpells && !hasMelee) combatMode = "mixed ranged and magic";
+    else if (hasMelee && hasRanged && hasSpells) combatMode = "mixed melee, ranged, and magic";
+    else combatMode = "unarmed";
+
+    // Distinct weapon-group names across the whole fight (for prompt callouts).
+    const weaponGroupSet = new Set();
+    for (const c of allCombatants) {
+      for (const w of (c.loadout?.melee ?? [])) weaponGroupSet.add(w.groupLabel);
+      for (const w of (c.loadout?.ranged ?? [])) weaponGroupSet.add(w.groupLabel);
+    }
+    const weaponGroups = [...weaponGroupSet];
 
     // Decisiveness: how lopsided was the outcome?
     const sortedByWinRate = [...sideSummaries].sort((a, b) => b.winRate - a.winRate);
@@ -105,6 +163,9 @@ export class NarrativeGenerator {
       avgRounds: rounds,
       paceLabel,
       drawRate: r.drawRate ?? 0,
+      startingRange: r.startingRange ?? null,
+      combatMode,
+      weaponGroups,
       predictedWinner: r.predictedWinner,
       decisiveness,
       winRateGap,
@@ -245,6 +306,8 @@ export class NarrativeGenerator {
       "Rules:\n" +
       "- Reference only combatants, sides, wound counts, death rates, and fight pacing that appear in the briefing.\n" +
       "- Do NOT invent new named combatants, crit descriptions, or numbers.\n" +
+      "- CRUCIAL: Match the weapons and range in the briefing. If the combatMode is 'ranged', describe arrows, bolts, shot, or whatever the weaponGroups field indicates - NOT swords, blades, or steel. If the starting range is 'long' or 'extreme', the fight opened at distance, not in melee. If combatMode is 'magical', describe spells and winds of magic, not blades. If 'mixed', acknowledge both.\n" +
+      "- Use the weaponGroups list in the briefing to pick specific imagery (e.g. 'bow' -> arrows and drawn strings; 'crossbow' -> bolts and the click of a latch; 'blackpowder' -> smoke, powder, shot; 'sling' -> whirling leather; 'throwing' -> hurled blades or axes; melee groups like 'basic', 'cavalry', 'fencing', 'flail', 'parry', 'polearm', 'twohanded' each suggest different melee imagery).\n" +
       "- Do NOT use em-dashes; prefer commas or periods.\n" +
       "- Do NOT begin with filler like 'In this fight' or 'The simulation shows'.\n" +
       "- Prefer specific, physical imagery over generic adventure-book prose.\n" +
@@ -258,6 +321,17 @@ export class NarrativeGenerator {
     // a small hand-written gloss so Claude doesn't have to re-derive
     // the key callouts.
     const callouts = [];
+
+    // Combat-mode callouts go FIRST and most forcefully. These are the
+    // facts that most shape the prose imagery.
+    callouts.push(`Combat mode: ${briefing.combatMode}.`);
+    if (briefing.weaponGroups?.length) {
+      callouts.push(`Weapon groups in play: ${briefing.weaponGroups.join(", ")}.`);
+    }
+    if (briefing.startingRange) {
+      callouts.push(`Combat opened at range: ${briefing.startingRange}.`);
+    }
+
     if (briefing.predictedWinner) {
       callouts.push(
         `Predicted winner: ${briefing.predictedWinner.name} ` +
@@ -269,8 +343,14 @@ export class NarrativeGenerator {
 
     for (const side of briefing.sides) {
       if (side.topDealer) {
+        const modeHint = side.topDealer.primaryMode
+          ? ` [${side.topDealer.primaryMode}]`
+          : "";
+        const groupHint = side.topDealer.weaponGroups?.length
+          ? ` using ${side.topDealer.weaponGroups.join("/")}`
+          : "";
         callouts.push(
-          `On ${side.name}, the heaviest hitter was ${side.topDealer.name} ` +
+          `On ${side.name}, the heaviest hitter was ${side.topDealer.name}${modeHint}${groupHint} ` +
           `(${side.topDealer.avgWounds.toFixed(1)} wounds dealt per iteration).`
         );
       }

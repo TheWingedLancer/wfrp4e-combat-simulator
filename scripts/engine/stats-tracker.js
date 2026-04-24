@@ -45,8 +45,22 @@ export class StatsTracker {
     // Combat length samples.
     this.roundsPerCombat = [];
 
+    // Loadout info per combatant entry - captured once by the engine
+    // before iterations start. Lives on this.loadouts[entryId] and gets
+    // merged into the per-combatant summary for the narrative generator.
+    this.loadouts = {};
+
     // Temporary per-iteration accumulator reset on each iteration.
     this._currentIterAcc = null;
+  }
+
+  /**
+   * Store a loadout descriptor for a given combatant entry. Called once
+   * at sim startup. Idempotent - if called multiple times, the last call
+   * wins.
+   */
+  recordLoadout(entryId, loadout) {
+    this.loadouts[entryId] = loadout;
   }
 
   recordIteration(outcome) {
@@ -177,7 +191,8 @@ export class StatsTracker {
         // Used as the "No crit" bucket weight for probabilistic Apply.
         iterationsWithZeroCritsReceived: rec.zeroCritIterationFlags.reduce((a, b) => a + b, 0),
         miscasts: distStats(rec.miscasts),
-        deathRate: mean(rec.diedInIter)
+        deathRate: mean(rec.diedInIter),
+        loadout: this.loadouts[id] ?? null
       };
     }
 
